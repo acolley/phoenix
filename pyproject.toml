@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "phoenix"
+version = "0.1.0"
+description = ""
+authors = ["Alasdair <alnessy@hotmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+pyrsistent = "^0.16.0"
+multipledispatch = "^0.6.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+black = "^19.10b0"
+
+[tool.poetry.scripts]
+main = "phoenix.main:main"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
