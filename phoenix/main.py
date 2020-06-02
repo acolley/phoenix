@@ -26,6 +26,7 @@ class ActorBase(abc.ABC):
 
 async def system(user: ActorBase):
 
+
     class Executor:
         def __init__(self, behaviour: Behaviour, ref: Ref):
             self.behaviour = behaviour
@@ -37,12 +38,12 @@ async def system(user: ActorBase):
         
         @dispatch(Setup)
         async def execute_behaviour(self, behaviour: Setup):
-            return await self.behaviour(spawn)
+            return await behaviour(spawn)
 
         @dispatch(Receive)
         async def execute_behaviour(self, behaviour: Receive):
             message = await self.ref.inbox.get()
-            return await self.behaviour(message)
+            return await behaviour(message)
         
         @dispatch(Ignore)
         async def execute_behaviour(self, behaviour: Ignore):
@@ -73,18 +74,32 @@ async def system(user: ActorBase):
             get = spawned.get()
             aws = [get] + [x.task for x in actors]
             for coro in asyncio.as_completed(aws):
-                result = await coro
-                if isinstance(result, Actor):
-                    actors.append(result)
-                else:
+                try:
+                    result = await coro
+                except Exception as e:
+                    print(e)
+                    # TODO: restart? notify parents?
+                    
+                    # FIXME: there must be a better way to do this as
+                    # this could go wrong if there are lots of actors.
                     to_remove = [x for x in actors if x.task.done()]
                     assert len(to_remove) > 0
                     # Otherwise we can't guarantee a match between the result
                     # and the finished task.
-                    # FIXME: there must be a better way to do this as
-                    # this could go wrong if there are lots of actors.
                     assert len(to_remove) == 1
                     actors = [x for x in actors if x is not to_remove[0]]
+                else:
+                    if isinstance(result, Actor):
+                        actors.append(result)
+                    else:
+                        # FIXME: there must be a better way to do this as
+                        # this could go wrong if there are lots of actors.
+                        to_remove = [x for x in actors if x.task.done()]
+                        assert len(to_remove) > 0
+                        # Otherwise we can't guarantee a match between the result
+                        # and the finished task.
+                        assert len(to_remove) == 1
+                        actors = [x for x in actors if x is not to_remove[0]]
                 break
     
     await spawn(user)
@@ -144,7 +159,7 @@ class Pong(ActorBase):
         async def f(message: str) -> Behaviour:
             print(message)
             if self.count > 5:
-                raise Exception
+                raise Exception("Boom")
             await self.ping.tell("pong")
             self.count += 1
             await asyncio.sleep(1)
