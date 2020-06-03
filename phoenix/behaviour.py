@@ -2,6 +2,8 @@ import inspect
 from pyrsistent import PRecord, field
 from typing import Union
 
+# TODO: make it easier to inspect the graph of behaviours that constitute an actor
+
 class Receive(PRecord):
 
     behaviour = field(invariant=lambda x: (inspect.iscoroutinefunction(x), f"Not a coroutine: {x}"))
@@ -15,7 +17,7 @@ def receive(behaviour) -> Receive:
 
 
 def receive_decorator(behaviour):
-    def _receive() -> Receive:
+    def _receive(self) -> Receive:
         return Receive(behaviour=behaviour)
     return _receive
 
@@ -33,7 +35,7 @@ def setup(behaviour) -> Setup:
 
 
 def setup_decorator(behaviour):
-    def _setup() -> Setup:
+    def _setup(self) -> Setup:
         return Setup(behaviour=behaviour)
     return _setup
 
@@ -60,6 +62,20 @@ class Stop:
 
 def stop() -> Stop:
     return Stop()
+
+
+class Restart(PRecord):
+    """
+    Restart the Actor if it fails.
+
+    See Akka Behaviours.supervise for ideas.
+    """
+
+    behaviour = field(type=(Setup, Receive, Same, Ignore))
+
+
+def restart(behaviour) -> Restart:
+    return Restart(behaviour=behaviour)
 
 
 Behaviour = Union[Stop, Ignore, Setup, Receive]

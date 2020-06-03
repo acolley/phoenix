@@ -1,19 +1,14 @@
 import abc
 import asyncio
 from asyncio import Queue, Task
+import attr
+import logging
 from multipledispatch import dispatch
 from pyrsistent import PRecord, field
-from typing import Any
+from typing import Any, Callable
 
 from phoenix import behaviour
-from phoenix.behaviour import Behaviour, Ignore, Receive, Setup
-
-
-class Ref(PRecord):
-    inbox: Queue = field(type=Queue)
-
-    async def tell(self, message: Any):
-        await self.inbox.put(message)
+from phoenix.behaviour import Behaviour, Ignore, Receive, Restart, Same, Setup, Stop
 
 
 # Intended as public interface for actor framework.
@@ -24,85 +19,142 @@ class ActorBase(abc.ABC):
         raise NotImplementedError
 
 
-async def system(user: ActorBase):
+@attr.s(frozen=True)
+class Ref:
+    inbox: Queue = attr.ib()
 
+    async def tell(self, message: Any):
+        await self.inbox.put(message)
+
+
+async def system(user: Callable[[], ActorBase]):
+
+    class ActorFailed(PRecord):
+        ref: Ref = field(type=Ref)
+        exc: Exception = field(type=Exception)
+    
+    class ActorStopped(PRecord):
+        ref: Ref = field(type=Ref)
+
+    class ActorSpawned(PRecord):
+        factory = field()
+        ref: Ref = field(type=Ref)
+    
+    class ActorRestarted(PRecord):
+        ref: Ref = field(type=Ref)
+
+    class RestartActor(Exception):
+        pass
+    
+    class StopActor(Exception):
+        pass
 
     class Executor:
-        def __init__(self, behaviour: Behaviour, ref: Ref):
-            self.behaviour = behaviour
+        def __init__(self, start: Behaviour, ref: Ref):
             self.ref = ref
+            self.behaviours = [start]
 
         async def run(self):
-            while True:
-                self.behaviour = await self.execute_behaviour(self.behaviour)
+            while self.behaviours:
+                current = self.behaviours[-1]
+                try:
+                    await self.execute(current)
+                except RestartActor:
+                    return ActorRestarted(ref=self.ref)
+                except StopActor:
+                    return ActorStopped(ref=self.ref)
+                except Exception as e:
+                    return ActorFailed(ref=self.ref, exc=e)
         
         @dispatch(Setup)
-        async def execute_behaviour(self, behaviour: Setup):
-            return await behaviour(spawn)
+        async def execute(self, behaviour: Setup):
+            async def _spawn(factory: Callable[[], ActorBase]) -> Ref:
+                return await spawn(Queue(), factory)
+            next_ = await behaviour(_spawn)
+            self.behaviours.append(next_)
 
         @dispatch(Receive)
-        async def execute_behaviour(self, behaviour: Receive):
+        async def execute(self, behaviour: Receive):
             message = await self.ref.inbox.get()
-            return await behaviour(message)
+            next_ = await behaviour(message)
+            self.ref.inbox.task_done()
+            self.behaviours.append(next_)
         
         @dispatch(Ignore)
-        async def execute_behaviour(self, behaviour: Ignore):
+        async def execute(self, behaviour: Ignore):
             await self.ref.inbox.get()
-            return behaviour
+            self.ref.inbox.task_done()
         
-        # @dispatch(Stop)
-        # async def execute_behaviour(self, behaviour: Stop):
-        #     await self.system.put(ScheduleStop(ref=self.ref))
+        @dispatch(Restart)
+        async def execute(self, behaviour: Restart):
+            try:
+                await self.execute(behaviour.behaviour)
+            except Exception:
+                raise RestartActor
+        
+        @dispatch(Same)
+        async def execute(self, behaviour: Same):
+            if len(self.behaviours) <= 1:
+                raise ValueError("Same behaviour requires an enclosing behaviour.")
+            self.behaviours.pop()
+        
+        @dispatch(Stop)
+        async def execute(self, behaviour: Stop):
+            raise StopActor
 
 
     class Actor(PRecord):
+        factory = field()
         ref: Ref = field(type=Ref)
         task: Task = field(type=Task)
+    
+    supervisor = Queue()
 
-    spawned = Queue()
-    async def spawn(actor: ActorBase) -> Ref:
-        ref = Ref(inbox=Queue())
-        executor = Executor(actor.start(), ref)
-        task = asyncio.create_task(executor.run())
-        await spawned.put(Actor(ref=ref, task=task))
+    async def spawn(inbox: Queue, factory: Callable[[], ActorBase]) -> Ref:
+        ref = Ref(inbox=inbox)
+        await supervisor.put(ActorSpawned(factory=factory, ref=ref))
         return ref
 
-
     async def supervise():
-        actors = []
+        actors = {}
+
+        # async def execute()
+
+        @dispatch(ActorSpawned)
+        async def handle(msg: ActorSpawned):
+            logging.debug("Actor spawned: %s", msg)
+            actor = msg.factory()
+            executor = Executor(actor.start(), msg.ref)
+            task = asyncio.create_task(executor.run())
+            actors[msg.ref] = Actor(factory=msg.factory, ref=msg.ref, task=task)
+        
+        @dispatch(ActorFailed)
+        async def handle(msg: ActorFailed):
+            actor = actors.pop(msg.ref)
+            logging.debug("Actor failed: %s %s", actor, msg.exc)
+        
+        @dispatch(ActorRestarted)
+        async def handle(msg: ActorRestarted):
+            actor = actors[msg.ref]
+            logging.debug("Actor restarted: %s", actor)
+            new = actor.factory()
+            executor = Executor(new.start(), actor.ref)
+            task = asyncio.create_task(executor.run())
+            actors[actor.ref] = Actor(factory=actor.factory, ref=actor.ref, task=task)
+        
+        @dispatch(ActorStopped)
+        async def handle(msg: ActorStopped):
+            logging.debug("Actor stopped: %s", msg)
+            del actors[msg.ref]
+
         while True:
-            get = spawned.get()
-            aws = [get] + [x.task for x in actors]
+            aws = [supervisor.get()] + [x.task for x in actors.values()]
             for coro in asyncio.as_completed(aws):
-                try:
-                    result = await coro
-                except Exception as e:
-                    print(e)
-                    # TODO: restart? notify parents?
-                    
-                    # FIXME: there must be a better way to do this as
-                    # this could go wrong if there are lots of actors.
-                    to_remove = [x for x in actors if x.task.done()]
-                    assert len(to_remove) > 0
-                    # Otherwise we can't guarantee a match between the result
-                    # and the finished task.
-                    assert len(to_remove) == 1
-                    actors = [x for x in actors if x is not to_remove[0]]
-                else:
-                    if isinstance(result, Actor):
-                        actors.append(result)
-                    else:
-                        # FIXME: there must be a better way to do this as
-                        # this could go wrong if there are lots of actors.
-                        to_remove = [x for x in actors if x.task.done()]
-                        assert len(to_remove) > 0
-                        # Otherwise we can't guarantee a match between the result
-                        # and the finished task.
-                        assert len(to_remove) == 1
-                        actors = [x for x in actors if x is not to_remove[0]]
+                result = await coro
+                await handle(result)
                 break
     
-    await spawn(user)
+    await spawn(Queue(), user)
     
     task = asyncio.create_task(supervise())
     await task
@@ -111,14 +163,17 @@ async def system(user: ActorBase):
 class Greeter(ActorBase):
     def __init__(self, greeting: str):
         self.greeting = greeting
+        self.count = 0
 
-    @behaviour.receive_decorator
-    async def start(self, message):
-        if message is None:
+    def start(self) -> Behaviour:
+        async def f(message):
+            self.count += 1
+            print(f"{self.greeting} {message}")
+            if self.count >= 5:
+                raise Exception("Oh noooooo!!")
+            await asyncio.sleep(1)
             return behaviour.same()
-
-        print(f"{self.greeting} {message}")
-        return behaviour.same()
+        return behaviour.restart(behaviour.receive(f))
 
 
 class Ping(ActorBase):
@@ -138,7 +193,7 @@ class Ping(ActorBase):
             print(message)
             await self.pong.tell("ping")
             await asyncio.sleep(1)
-            return self.ping()
+            return behaviour.same()
 
         return behaviour.receive(f)
 
@@ -146,7 +201,6 @@ class Ping(ActorBase):
 class Pong(ActorBase):
     def __init__(self):
         self.ping = None
-        self.count = 0
     
     def start(self) -> Behaviour:
         async def f(ping: Ref) -> Behaviour:
@@ -158,12 +212,9 @@ class Pong(ActorBase):
     def pong(self) -> Behaviour:
         async def f(message: str) -> Behaviour:
             print(message)
-            if self.count > 5:
-                raise Exception("Boom")
             await self.ping.tell("pong")
-            self.count += 1
             await asyncio.sleep(1)
-            return self.pong()
+            return behaviour.same()
 
         return behaviour.receive(f)
 
@@ -176,8 +227,11 @@ class PingPong(ActorBase):
     
     def start(self) -> Behaviour:
         async def f(spawn):
-            self.ping = await spawn(Ping())
-            self.pong = await spawn(Pong())
+            self.greeter = await spawn(lambda: Greeter("Hello"))
+            for i in range(100):
+                await self.greeter.tell(str(i))
+            self.ping = await spawn(Ping)
+            self.pong = await spawn(Pong)
             await self.ping.tell(self.pong)
             await self.pong.tell(self.ping)
             return behaviour.ignore()
@@ -206,7 +260,8 @@ class PingPong(ActorBase):
 
 
 def main():
-    asyncio.run(system(PingPong()))
+    logging.basicConfig(level=logging.DEBUG)
+    asyncio.run(system(PingPong), debug=True)
 
 
 # system = ActorSystem(Greeter("Hello"), "hello")
