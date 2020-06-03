@@ -5,7 +5,8 @@ import attr
 import logging
 from multipledispatch import dispatch
 from pyrsistent import PRecord, field
-from typing import Any, Callable
+import traceback
+from typing import Any, Callable, Optional, Union
 
 from phoenix import behaviour
 from phoenix.behaviour import Behaviour, Ignore, Receive, Restart, Same, Setup, Stop
@@ -25,6 +26,17 @@ class Ref:
 
     async def tell(self, message: Any):
         await self.inbox.put(message)
+    
+    async def ask(self, f: Callable[["Ref"], Any], timeout: Optional[Union[float, int]]=None) -> Any:
+        """
+        """
+        # Create a fake actor for the destination to reply to.
+        ref = Ref(Queue())
+        msg = f(ref)
+        async def interact() -> Any:
+            await self.inbox.put(msg)
+            return await ref.inbox.get()
+        return await asyncio.wait_for(interact(), timeout=timeout)
 
 
 async def system(user: Callable[[], ActorBase]):
@@ -81,6 +93,7 @@ async def system(user: Callable[[], ActorBase]):
                 except StopActor:
                     return ActorStopped(ref=self.ref)
                 except Exception as e:
+                    traceback.print_exc()
                     return ActorFailed(ref=self.ref, exc=e)
         
         @dispatch(Setup)
@@ -238,6 +251,26 @@ class Pong(ActorBase):
         return behaviour.receive(f)
 
 
+
+
+class EchoMsg:
+
+    def __init__(self, reply_to, message):
+        self.reply_to = reply_to
+        self.message = message
+    # reply_to: Ref = attr.ib()
+    # message: str = attr.ib()
+
+
+class Echo(ActorBase):
+
+    def start(self) -> Behaviour:
+        async def f(message):
+            await message.reply_to.tell(message.message)
+            return behaviour.same()
+        return behaviour.receive(f)
+
+
 class PingPong(ActorBase):
 
     def __init__(self):
@@ -253,6 +286,11 @@ class PingPong(ActorBase):
             self.pong = await spawn(Pong)
             await self.ping.tell(self.pong)
             await self.pong.tell(self.ping)
+            
+            echo = await spawn(Echo)
+            reply = await echo.ask(lambda reply_to: EchoMsg(reply_to, "Echooooo"))
+            print(reply)
+
             return behaviour.ignore()
 
         return behaviour.setup(f)
