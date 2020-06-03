@@ -1,6 +1,8 @@
+import attr
+from attr.validators import instance_of, optional
 import inspect
 from pyrsistent import PRecord, field
-from typing import Union
+from typing import Optional, Union
 
 # TODO: make it easier to inspect the graph of behaviours that constitute an actor
 
@@ -64,18 +66,28 @@ def stop() -> Stop:
     return Stop()
 
 
-class Restart(PRecord):
+@attr.s(frozen=True)
+class Restart:
     """
     Restart the Actor if it fails.
 
     See Akka Behaviours.supervise for ideas.
     """
 
-    behaviour = field(type=(Setup, Receive, Same, Ignore))
+    behaviour = attr.ib(validator=instance_of((Setup, Receive, Same, Ignore)))
+    max_restarts: Optional[int] = attr.ib(validator=optional(instance_of(int)), default=3)
+
+    @max_restarts.validator
+    def check(self, attribute: str, value: Optional[int]):
+        if value is not None and value < 1:
+            raise ValueError("max_restarts must be greater than zero.")
+
+    def with_max_restarts(self, max_restarts: Optional[int]) -> "Restarts":
+        return attr.evolve(self, max_restarts=max_restarts)
 
 
 def restart(behaviour) -> Restart:
     return Restart(behaviour=behaviour)
 
 
-Behaviour = Union[Stop, Ignore, Setup, Receive]
+Behaviour = Union[Stop, Ignore, Setup, Receive, Same]

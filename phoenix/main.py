@@ -42,6 +42,7 @@ async def system(user: Callable[[], ActorBase]):
     
     class ActorRestarted(PRecord):
         ref: Ref = field(type=Ref)
+        restarts: int = field(type=int)
 
     class RestartActor(Exception):
         pass
@@ -50,17 +51,33 @@ async def system(user: Callable[[], ActorBase]):
         pass
 
     class Executor:
-        def __init__(self, start: Behaviour, ref: Ref):
+        """
+        Responsible for executing the behaviours returned
+        by the actor's starting behaviour.
+        """
+        def __init__(self, start: Behaviour, ref: Ref, restarts: int):
             self.ref = ref
             self.behaviours = [start]
+            self.restarts = restarts
 
         async def run(self):
+            """
+            Execute the actor in a coroutine.
+
+            Returns terminating behaviours for the actor
+            so that the supervisor for this actor knows
+            how to react to a termination.
+            """
+            # A stack of actor behaviours.
+            # The top of the stack determines
+            # what the behaviour will be on
+            # the next loop cycle.
             while self.behaviours:
                 current = self.behaviours[-1]
                 try:
                     await self.execute(current)
                 except RestartActor:
-                    return ActorRestarted(ref=self.ref)
+                    return ActorRestarted(ref=self.ref, restarts=self.restarts + 1)
                 except StopActor:
                     return ActorStopped(ref=self.ref)
                 except Exception as e:
@@ -90,6 +107,8 @@ async def system(user: Callable[[], ActorBase]):
             try:
                 await self.execute(behaviour.behaviour)
             except Exception:
+                if self.restarts >= behaviour.max_restarts:
+                    raise
                 raise RestartActor
         
         @dispatch(Same)
@@ -118,15 +137,17 @@ async def system(user: Callable[[], ActorBase]):
     async def supervise():
         actors = {}
 
-        # async def execute()
+        async def execute(ref: Ref, factory: Callable[[], ActorBase], restarts: int) -> Actor:
+            actor = factory()
+            executor = Executor(actor.start(), ref, restarts)
+            task = asyncio.create_task(executor.run())
+            return Actor(factory=factory, ref=ref, task=task)
 
         @dispatch(ActorSpawned)
         async def handle(msg: ActorSpawned):
-            logging.debug("Actor spawned: %s", msg)
-            actor = msg.factory()
-            executor = Executor(actor.start(), msg.ref)
-            task = asyncio.create_task(executor.run())
-            actors[msg.ref] = Actor(factory=msg.factory, ref=msg.ref, task=task)
+            actor = await execute(ref=msg.ref, factory=msg.factory, restarts=0)
+            actors[msg.ref] = actor
+            logging.debug("Actor spawned: %s", actor)
         
         @dispatch(ActorFailed)
         async def handle(msg: ActorFailed):
@@ -136,16 +157,14 @@ async def system(user: Callable[[], ActorBase]):
         @dispatch(ActorRestarted)
         async def handle(msg: ActorRestarted):
             actor = actors[msg.ref]
+            actor = await execute(ref=actor.ref, factory=actor.factory, restarts=msg.restarts)
+            actors[actor.ref] = actor
             logging.debug("Actor restarted: %s", actor)
-            new = actor.factory()
-            executor = Executor(new.start(), actor.ref)
-            task = asyncio.create_task(executor.run())
-            actors[actor.ref] = Actor(factory=actor.factory, ref=actor.ref, task=task)
         
         @dispatch(ActorStopped)
         async def handle(msg: ActorStopped):
-            logging.debug("Actor stopped: %s", msg)
-            del actors[msg.ref]
+            actor = actors.pop(msg.ref)
+            logging.debug("Actor stopped: %s", actor)
 
         while True:
             aws = [supervisor.get()] + [x.task for x in actors.values()]
@@ -239,30 +258,6 @@ class PingPong(ActorBase):
         return behaviour.setup(f)
 
 
-# async def main_async():
-#     ref = await spawn(PingPong())
-#     while True:
-#         await asyncio.sleep(1)
-
-    # task1, ref1 = await spawn(Ping())
-    # task2, ref2 = await spawn(Pong())
-    # await ref1.inbox.put(ref2)
-    # await ref2.inbox.put(ref1)
-    # await asyncio.gather(task1, task2)
-
-    # task1, ref1 = await spawn(Greeter("Hello"))
-    # await ref1.inbox.put("Alasdair")
-    # await ref1.inbox.put("Katy")
-    # task2, ref2 = await spawn(Greeter("Goodbye"))
-    # await ref2.inbox.put("Alasdair")
-    # await ref2.inbox.put("Katy")
-    # await asyncio.gather(task1, task2)
-
-
 def main():
     logging.basicConfig(level=logging.DEBUG)
     asyncio.run(system(PingPong), debug=True)
-
-
-# system = ActorSystem(Greeter("Hello"), "hello")
-# asyncio.run(system.run())
