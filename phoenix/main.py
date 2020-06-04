@@ -2,39 +2,41 @@ import abc
 import asyncio
 from asyncio import Queue, Task
 import attr
+from functools import partial
 import logging
 from multipledispatch import dispatch
 from pyrsistent import PRecord, field
+import random
 import traceback
 from typing import Any, Callable, Optional, Union
 
 from phoenix import behaviour, routers
-from phoenix.actor import ActorBase, Ref
+from phoenix.actor import Ref
 from phoenix.behaviour import Behaviour
 from phoenix.system import system
 
 
-class Greeter(ActorBase):
+class Greeter:
     def __init__(self, greeting: str):
         self.greeting = greeting
         self.count = 0
 
-    def start(self) -> Behaviour:
+    def __call__(self) -> Behaviour:
         async def f(message):
             self.count += 1
             print(f"{self.greeting} {message}")
             if self.count >= 5:
                 raise Exception("Oh noooooo!!")
-            await asyncio.sleep(1)
+            await asyncio.sleep(random.uniform(0, 10))
             return behaviour.same()
         return behaviour.restart(behaviour.receive(f))
 
 
-class Ping(ActorBase):
+class Ping:
     def __init__(self):
         self.pong = None
     
-    def start(self) -> Behaviour:
+    def __call__(self) -> Behaviour:
         async def f(pong: Ref) -> Behaviour:
             self.pong = pong
             await self.pong.tell("ping")
@@ -46,17 +48,17 @@ class Ping(ActorBase):
         async def f(message: str) -> Behaviour:
             print(message)
             await self.pong.tell("ping")
-            await asyncio.sleep(1)
+            await asyncio.sleep(random.uniform(0, 10))
             return behaviour.same()
 
         return behaviour.receive(f)
 
 
-class Pong(ActorBase):
+class Pong:
     def __init__(self):
         self.ping = None
     
-    def start(self) -> Behaviour:
+    def __call__(self) -> Behaviour:
         async def f(ping: Ref) -> Behaviour:
             self.ping = ping
             return self.pong()
@@ -67,7 +69,7 @@ class Pong(ActorBase):
         async def f(message: str) -> Behaviour:
             print(message)
             await self.ping.tell("pong")
-            await asyncio.sleep(1)
+            await asyncio.sleep(random.uniform(0, 10))
             return behaviour.same()
 
         return behaviour.receive(f)
@@ -80,13 +82,13 @@ class EchoMsg:
         self.message = message
 
 
-class PingPong(ActorBase):
+class PingPong:
 
     def __init__(self):
         self.ping = None
         self.pong = None
     
-    def start(self) -> Behaviour:
+    def __call__(self) -> Behaviour:
         async def f(spawn):
             self.greeter = await spawn(lambda: Greeter("Hello"))
             for i in range(100):
@@ -102,11 +104,11 @@ class PingPong(ActorBase):
                     return behaviour.same()
                 return behaviour.receive(f)
             
-            router = routers.pool(5)(worker())
+            router = routers.pool(5)(worker)
             echo = await spawn(router)
             replies = await asyncio.gather(
-                echo.ask(lambda reply_to: EchoMsg(reply_to, "Echooooo")),
-                echo.ask(lambda reply_to: EchoMsg(reply_to, "Meeeeeee")),
+                echo.ask(partial(EchoMsg, message="Echooooo")),
+                echo.ask(partial(EchoMsg, message="Meeeeeee")),
             )
             print(replies)
 

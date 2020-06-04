@@ -6,11 +6,11 @@ from pyrsistent import PRecord, field
 import traceback
 from typing import Callable
 
-from phoenix.actor import ActorBase, Ref
+from phoenix.actor import Ref
 from phoenix.behaviour import Behaviour, Ignore, Receive, Restart, Same, Setup, Stop
 
 
-async def system(user: Callable[[], ActorBase]):
+async def system(user: Callable[[], Callable[[], Behaviour]]):
 
     class ActorFailed(PRecord):
         ref: Ref = field(type=Ref)
@@ -69,7 +69,7 @@ async def system(user: Callable[[], ActorBase]):
         
         @dispatch(Setup)
         async def execute(self, behaviour: Setup):
-            async def _spawn(factory: Callable[[], ActorBase]) -> Ref:
+            async def _spawn(factory: Callable[[], Callable[[], Behaviour]]) -> Ref:
                 return await spawn(Queue(), factory)
             next_ = await behaviour(_spawn)
             self.behaviours.append(next_)
@@ -114,7 +114,7 @@ async def system(user: Callable[[], ActorBase]):
     
     supervisor = Queue()
 
-    async def spawn(inbox: Queue, factory: Callable[[], ActorBase]) -> Ref:
+    async def spawn(inbox: Queue, factory: Callable[[], Callable[[], Behaviour]]) -> Ref:
         ref = Ref(inbox=inbox)
         await supervisor.put(ActorSpawned(factory=factory, ref=ref))
         return ref
@@ -122,9 +122,9 @@ async def system(user: Callable[[], ActorBase]):
     async def supervise():
         actors = {}
 
-        async def execute(ref: Ref, factory: Callable[[], ActorBase], restarts: int) -> Actor:
+        async def execute(ref: Ref, factory: Callable[[], Callable[[], Behaviour]], restarts: int) -> Actor:
             actor = factory()
-            executor = Executor(actor.start(), ref, restarts)
+            executor = Executor(actor(), ref, restarts)
             task = asyncio.create_task(executor.run())
             return Actor(factory=factory, ref=ref, task=task)
 

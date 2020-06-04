@@ -7,14 +7,6 @@ from typing import Any, Callable, Optional, Union
 from phoenix.behaviour import Behaviour
 
 
-# Intended as public interface for actor framework.
-class ActorBase(abc.ABC):
-    
-    @abc.abstractmethod
-    def start(self) -> Behaviour:
-        raise NotImplementedError
-
-
 @attr.s(frozen=True)
 class Ref:
     inbox: Queue = attr.ib()

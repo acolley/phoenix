@@ -1,11 +1,10 @@
 from typing import Any, Callable
 
 from phoenix import behaviour
-from phoenix.actor import ActorBase
 from phoenix.behaviour import Behaviour
 
 
-class PoolRouter(ActorBase):
+class PoolRouter:
     """
     Route messages to each worker actor
     using round robin.
@@ -20,17 +19,11 @@ class PoolRouter(ActorBase):
         self.workers = []
         self.index = 0
     
-    def start(self) -> Behaviour:
-        worker_behaviour = self.worker_behaviour
-
-        class RouterWorker(ActorBase):
-
-            def start(self):
-                return worker_behaviour
+    def __call__(self) -> Behaviour:
 
         async def f(spawn):
             for _ in range(self.pool_size):
-                worker = await spawn(RouterWorker)
+                worker = await spawn(lambda: self.worker_behaviour)
                 self.workers.append(worker)
             return self.work()
 
