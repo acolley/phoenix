@@ -114,7 +114,7 @@ class PingPong:
 
             return behaviour.ignore()
 
-        return behaviour.setup(f)
+        return behaviour.restart(behaviour.setup(f))
 
 
 def main():
