@@ -6,7 +6,7 @@ import logging
 from multipledispatch import dispatch
 from pyrsistent import PRecord, field
 import traceback
-from typing import Callable, Optional
+from typing import Callable, Generic, Optional, TypeVar
 
 from phoenix.actor import Ref
 from phoenix.behaviour import Behaviour, Ignore, Receive, Restart, Same, Setup, Stop
@@ -62,6 +62,8 @@ async def system(user: Callable[[], Callable[[], Behaviour]]):
             # The top of the stack determines
             # what the behaviour will be on
             # the next loop cycle.
+            # TODO: implement circular stack of behaviours
+            # to prevent huge behaviour stacks.
             try:
                 while self.behaviours:
                     current = self.behaviours[-1]
@@ -103,9 +105,17 @@ async def system(user: Callable[[], Callable[[], Behaviour]]):
         async def execute(self, behaviour: Restart):
             try:
                 await self.execute(behaviour.behaviour)
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 if self.restarts >= behaviour.max_restarts:
                     raise
+                
+                if behaviour.backoff:
+                    seconds = behaviour.backoff(self.restarts)
+                    print(f"Waiting for: {seconds}")
+                    await asyncio.sleep(behaviour.backoff(self.restarts))
+
                 raise RestartActor
         
         @dispatch(Same)

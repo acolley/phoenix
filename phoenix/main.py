@@ -27,9 +27,9 @@ class Greeter:
             print(f"{self.greeting} {message}")
             if self.count >= 5:
                 raise Exception("Oh noooooo!!")
-            await asyncio.sleep(random.uniform(0, 10))
+            await asyncio.sleep(1)
             return behaviour.same()
-        return behaviour.restart(behaviour.receive(f))
+        return behaviour.restart(behaviour.receive(f)).with_backoff(lambda n: min(2**n, 10))
 
 
 class Ping:
@@ -48,7 +48,7 @@ class Ping:
         async def f(message: str) -> Behaviour:
             print(message)
             await self.pong.tell("ping")
-            await asyncio.sleep(random.uniform(0, 10))
+            await asyncio.sleep(random.uniform(0, 3))
             return behaviour.same()
 
         return behaviour.receive(f)
@@ -69,7 +69,7 @@ class Pong:
         async def f(message: str) -> Behaviour:
             print(message)
             await self.ping.tell("pong")
-            await asyncio.sleep(random.uniform(0, 10))
+            await asyncio.sleep(random.uniform(0, 3))
             return behaviour.same()
 
         return behaviour.receive(f)
