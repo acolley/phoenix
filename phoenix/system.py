@@ -141,11 +141,13 @@ async def system(user: Behaviour):
             timer = timers[message.ref].pop(message.key)
             timer.task.cancel()
             scheduler.task_done()
+            logger.debug("Timer cancelled: %s", timer)
 
         @dispatch(ActorSpawned)
         async def scheduler_handle(message: ActorSpawned):
             timers[message.ref] = {}
             scheduler.task_done()
+            logger.debug("Actor timers added: %s", message.ref)
 
         @dispatch((ActorFailed, ActorKilled, ActorRestarted, ActorStopped))
         async def scheduler_handle(message):
@@ -153,6 +155,7 @@ async def system(user: Behaviour):
             for timer in actor_timers:
                 timer.task.cancel()
             scheduler.task_done()
+            logger.debug("Actor timers removed: %s", message.ref)
 
         @dispatch(TimerTimedOut)
         async def scheduler_handle(message: TimerTimedOut):
@@ -163,6 +166,7 @@ async def system(user: Behaviour):
                 task = asyncio.create_task(timer.timer.run())
                 timers[message.ref][message.key] = attr.evolve(timer, task=task)
             await timer.timer.ref.tell(timer.message)
+            logger.debug("Timer message sent: %s %s", message.ref, timer.message)
 
         while True:
             aws = [scheduler.get()] + [timer.task for actor_timers in timers.values() for timer in actor_timers.values()]
