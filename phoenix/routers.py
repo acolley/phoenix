@@ -1,6 +1,8 @@
-from typing import Any, Callable
+from pyrsistent import v
+from typing import Any, Callable, List
 
 from phoenix import behaviour
+from phoenix.actor import Ref
 from phoenix.behaviour import Behaviour
 
 
@@ -10,37 +12,29 @@ class PoolRouter:
     using round robin.
     """
 
-    def __init__(self, worker_behaviour: Behaviour, pool_size: int):
-        if pool_size < 1:
-            raise ValueError("pool_size must be greater than zero")
-
-        self.worker_behaviour = worker_behaviour
-        self.pool_size = pool_size
-        self.workers = []
-        self.index = 0
-
-    def __call__(self) -> Behaviour:
+    @staticmethod
+    def start(worker_behaviour: Behaviour, size: int) -> Behaviour:
         async def f(spawn):
-            for _ in range(self.pool_size):
-                worker = await spawn(lambda: self.worker_behaviour)
-                self.workers.append(worker)
-            return self.work()
+            workers = v()
+            for _ in range(size):
+                worker = await spawn(worker_behaviour)
+                workers = workers.append(worker)
+            return PoolRouter.work(workers, 0)
 
         return behaviour.setup(f)
 
-    def work(self) -> Behaviour:
+    @staticmethod
+    def work(workers, index: int) -> Behaviour:
         async def f(message: Any):
-            print(f"Worker: {self.index}")
-            worker = self.workers[self.index]
+            print(f"Worker: {index}")
+            worker = workers[index]
             await worker.tell(message)
-            self.index = (self.index + 1) % len(self.workers)
-            return behaviour.same()
+            return PoolRouter.work(workers, (index + 1) % len(workers))
 
         return behaviour.receive(f)
 
 
-def pool(size: int) -> Callable[[], Callable[[], PoolRouter]]:
-    def _factory(behaviour: Behaviour) -> Callable[[], PoolRouter]:
-        return lambda: PoolRouter(worker_behaviour=behaviour, pool_size=size)
-
+def pool(size: int) -> Callable[[], Callable[[], Behaviour]]:
+    def _factory(worker_behaviour: Behaviour) -> Behaviour:
+        return PoolRouter.start(worker_behaviour, size)
     return _factory

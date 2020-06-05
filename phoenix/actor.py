@@ -2,14 +2,17 @@ import abc
 import asyncio
 from asyncio import Queue
 import attr
+from attr.validators import instance_of
 from typing import Any, Callable, Optional, Union
+import uuid
 
 from phoenix.behaviour import Behaviour
 
 
-@attr.s(frozen=True)
+@attr.s(frozen=True, repr=False)
 class Ref:
-    inbox: Queue = attr.ib()
+    id: str = attr.ib(validator=instance_of(str))
+    inbox: Queue = attr.ib(validator=instance_of(Queue))
 
     async def tell(self, message: Any):
         await self.inbox.put(message)
@@ -20,7 +23,7 @@ class Ref:
         """
         """
         # Create a fake actor for the destination to reply to.
-        ref = Ref(Queue())
+        ref = Ref(id=str(uuid.uuid1()), inbox=Queue())
         msg = f(ref)
 
         async def interact() -> Any:
@@ -28,3 +31,6 @@ class Ref:
             return await ref.inbox.get()
 
         return await asyncio.wait_for(interact(), timeout=timeout)
+    
+    def __repr__(self) -> str:
+        return f"Ref(id={repr(self.id)})"

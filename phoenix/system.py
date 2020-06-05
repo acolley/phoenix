@@ -117,8 +117,6 @@ async def system(user: Behaviour):
             key = message.key or str(uuid.uuid1())
             timer = Timer(ref=message.ref, key=key, interval=message.interval)
             task = asyncio.create_task(timer.run())
-            # Since this is not async it will block the thread, guaranteeing
-            # that we do not get a race condition.
             timer = SingleShotTimer(message=message.message, task=task, timer=timer)
             timers[message.ref][key] = timer
             scheduler.task_done()
@@ -129,8 +127,6 @@ async def system(user: Behaviour):
             key = message.key or str(uuid.uuid1())
             timer = Timer(ref=message.ref, key=key, interval=message.interval)
             task = asyncio.create_task(timer.run())
-            # Since this is not async it will block the thread, guaranteeing
-            # that we do not get a race condition.
             timer = FixedDelayTimer(message=message.message, task=task, timer=timer)
             timers[message.ref][key] = timer
             scheduler.task_done()
@@ -208,6 +204,9 @@ async def system(user: Behaviour):
         """
 
         def __init__(self, start: Behaviour, ref: Ref):
+            if not isinstance(start, (Receive, Restart, Schedule, Setup)):
+                raise ValueError(f"Invalid start behaviour: {start}")
+
             self.ref = ref
             self.start = start
 
@@ -224,10 +223,15 @@ async def system(user: Behaviour):
             # The top of the stack determines
             # what the behaviour will be on
             # the next loop cycle.
-            # FIXME: behaviours can result in blowing out the stack.
 
             try:
-                await self.execute(self.start)
+                behaviours = [self.start]
+                while behaviours:
+                    logger.debug("Actor [%s] Main: %s", self.ref, behaviours)
+                    current = behaviours[-1]
+                    next_ = await self.execute(current)
+                    if next_:
+                        behaviours.append(next_)
             except RestartActor as e:
                 return ActorRestarted(ref=self.ref, behaviour=e.behaviour)
             except StopActor:
@@ -244,10 +248,11 @@ async def system(user: Behaviour):
         async def execute(self, behaviour: Setup):
             logger.debug("Executing %s", behaviour)
 
-            async def _spawn(factory: Callable[[], Callable[[], Behaviour]]) -> Ref:
-                return await spawn(self.ref, Queue(), factory)
+            async def _spawn(start: Behaviour, id: Optional[str] = None) -> Ref:
+                return await spawn(self.ref, Queue(), start, id=id)
 
-            await self.execute(await behaviour(_spawn))
+            next_ = await behaviour(_spawn)
+            return next_
 
         @dispatch(Receive)
         async def execute(self, behaviour: Receive):
@@ -256,7 +261,7 @@ async def system(user: Behaviour):
             logger.debug("Message received: %s: %s", self.ref, message)
             next_ = await behaviour(message)
             self.ref.inbox.task_done()
-            await self.execute(next_)
+            return next_
 
         @dispatch(Ignore)
         async def execute(self, behaviour: Ignore):
@@ -272,25 +277,35 @@ async def system(user: Behaviour):
         @dispatch(Restart)
         async def execute(self, behaviour: Restart):
             logger.debug("Executing %s", behaviour)
-            try:
-                await self.execute(behaviour.behaviour)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                if behaviour.restarts >= behaviour.max_restarts:
+
+            behaviours = [behaviour.behaviour]
+            while behaviours:
+                logger.debug("Actor [%s] Restart: %s", self.ref, behaviours)
+                current = behaviours.pop()
+                try:
+                    next_ = await self.execute(current)
+                except StopActor:
                     raise
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    if behaviour.restarts >= behaviour.max_restarts:
+                        raise
 
-                logger.debug("Restart behaviour caught exception", exc_info=True)
+                    logger.debug("Restart behaviour caught exception", exc_info=True)
 
-                if behaviour.backoff:
-                    await asyncio.sleep(behaviour.backoff(behaviour.restarts))
+                    if behaviour.backoff:
+                        await asyncio.sleep(behaviour.backoff(behaviour.restarts))
 
-                raise RestartActor(attr.evolve(behaviour, restarts=behaviour.restarts + 1))
+                    raise RestartActor(attr.evolve(behaviour, restarts=behaviour.restarts + 1))
+                else:
+                    if next_:
+                        behaviours.append(next_)
 
         @dispatch(Schedule)
         async def execute(self, behaviour: Schedule):
             logger.debug("Executing %s", behaviour)
-            await self.execute(await behaviour(Timers(self.ref)))
+            return await behaviour(Timers(self.ref))
 
         @dispatch(Same)
         async def execute(self, behaviour: Same):
@@ -312,9 +327,10 @@ async def system(user: Behaviour):
 
     supervisor = Queue()
 
-    async def spawn(parent: Optional[Ref], inbox: Queue, behaviour: Behaviour) -> Ref:
-        ref = Ref(inbox=inbox)
-        await supervisor.put(ActorSpawned(parent=parent, behaviour=behaviour, ref=ref))
+    async def spawn(parent: Optional[Ref], inbox: Queue, start: Behaviour, id: Optional[str] = None) -> Ref:
+        id = id or str(uuid.uuid1())
+        ref = Ref(id=id, inbox=inbox)
+        await supervisor.put(ActorSpawned(parent=parent, behaviour=start, ref=ref))
         return ref
 
     async def supervise():

@@ -94,9 +94,9 @@ class PingPong:
     @staticmethod
     def start() -> Behaviour:
         async def f(spawn):
-            await spawn(Greeter.start("Hello"))
-            ping = await spawn(Ping.start())
-            pong = await spawn(Pong.start())
+            await spawn(Greeter.start("Hello"), "Greeter")
+            ping = await spawn(Ping.start(), "Ping")
+            pong = await spawn(Pong.start(), "Pong")
             await ping.tell(pong)
             await pong.tell(ping)
 
@@ -106,8 +106,8 @@ class PingPong:
                     return behaviour.same()
                 return behaviour.receive(f)
 
-            router = routers.pool(5)(worker)
-            echo = await spawn(router)
+            router = routers.pool(5)(worker())
+            echo = await spawn(router, "Router")
             replies = await asyncio.gather(
                 echo.ask(partial(EchoMsg, message="Echooooo")),
                 echo.ask(partial(EchoMsg, message="Meeeeeee")),
@@ -120,5 +120,5 @@ class PingPong:
 
 
 def main():
-    logging.basicConfig(level=logging.DEBUG)
-    asyncio.run(system(PingPong.start()), debug=True)
+    # logging.basicConfig(level=logging.DEBUG)
+    asyncio.run(system(Greeter.start("Hello")), debug=True)
