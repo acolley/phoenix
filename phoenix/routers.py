@@ -18,9 +18,8 @@ class PoolRouter:
         self.pool_size = pool_size
         self.workers = []
         self.index = 0
-    
-    def __call__(self) -> Behaviour:
 
+    def __call__(self) -> Behaviour:
         async def f(spawn):
             for _ in range(self.pool_size):
                 worker = await spawn(lambda: self.worker_behaviour)
@@ -28,7 +27,7 @@ class PoolRouter:
             return self.work()
 
         return behaviour.setup(f)
-    
+
     def work(self) -> Behaviour:
         async def f(message: Any):
             print(f"Worker: {self.index}")
@@ -43,4 +42,5 @@ class PoolRouter:
 def pool(size: int) -> Callable[[], Callable[[], PoolRouter]]:
     def _factory(behaviour: Behaviour) -> Callable[[], PoolRouter]:
         return lambda: PoolRouter(worker_behaviour=behaviour, pool_size=size)
+
     return _factory

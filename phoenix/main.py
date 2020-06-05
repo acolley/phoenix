@@ -2,6 +2,8 @@ import abc
 import asyncio
 from asyncio import Queue, Task
 import attr
+from attr.validators import instance_of
+from datetime import timedelta
 from functools import partial
 import logging
 from multipledispatch import dispatch
@@ -17,93 +19,93 @@ from phoenix.system import system
 
 
 class Greeter:
-    def __init__(self, greeting: str):
-        self.greeting = greeting
-        self.count = 0
+    class Timeout:
+        pass
 
-    def __call__(self) -> Behaviour:
-        async def f(message):
-            self.count += 1
-            print(f"{self.greeting} {message}")
-            if self.count >= 5:
-                raise Exception("Oh noooooo!!")
-            await asyncio.sleep(1)
-            return behaviour.same()
-        return behaviour.restart(behaviour.receive(f)).with_backoff(lambda n: min(2**n, 10))
+    @staticmethod
+    def start(greeting: str) -> Behaviour:
+        return Greeter.init(greeting, 0)
+
+    @staticmethod
+    def init(greeting: str, count: int) -> Behaviour:
+        async def f(timers):
+            await timers.start_fixed_delay_timer(Greeter.Timeout, timedelta(seconds=1))
+            return Greeter.active(greeting, count)
+
+        return behaviour.restart(behaviour.schedule(f))
+
+    @staticmethod
+    def active(greeting: str, count: int) -> Behaviour:
+        async def f(message: Greeter.Timeout):
+            print(f"{greeting} {count}")
+            if count > 5:
+                raise Exception("Boooooom!!!")
+            return Greeter.active(greeting, count + 1)
+
+        return behaviour.receive(f)
 
 
 class Ping:
-    def __init__(self):
-        self.pong = None
     
-    def __call__(self) -> Behaviour:
+    @staticmethod
+    def start() -> Behaviour:
         async def f(pong: Ref) -> Behaviour:
-            self.pong = pong
-            await self.pong.tell("ping")
-            return self.ping()
-
+            await pong.tell("ping")
+            return Ping.ping(pong)
         return behaviour.receive(f)
-    
-    def ping(self) -> Behaviour:
+
+    @staticmethod
+    def ping(pong: Ref) -> Behaviour:
         async def f(message: str) -> Behaviour:
             print(message)
-            await self.pong.tell("ping")
-            await asyncio.sleep(random.uniform(0, 3))
+            await pong.tell("ping")
             return behaviour.same()
 
         return behaviour.receive(f)
 
 
 class Pong:
-    def __init__(self):
-        self.ping = None
-    
-    def __call__(self) -> Behaviour:
+
+    @staticmethod
+    def start() -> Behaviour:
         async def f(ping: Ref) -> Behaviour:
-            self.ping = ping
-            return self.pong()
+            return Pong.pong(ping)
 
         return behaviour.receive(f)
-    
-    def pong(self) -> Behaviour:
+
+    @staticmethod
+    def pong(ping: Ref) -> Behaviour:
         async def f(message: str) -> Behaviour:
             print(message)
-            await self.ping.tell("pong")
-            await asyncio.sleep(random.uniform(0, 3))
+            await ping.tell("pong")
             return behaviour.same()
 
         return behaviour.receive(f)
 
 
+@attr.s
 class EchoMsg:
-
-    def __init__(self, reply_to, message):
-        self.reply_to = reply_to
-        self.message = message
+    reply_to: Ref = attr.ib(validator=instance_of(Ref))
+    message: str = attr.ib(validator=instance_of(str))
 
 
 class PingPong:
-
-    def __init__(self):
-        self.ping = None
-        self.pong = None
     
-    def __call__(self) -> Behaviour:
+    @staticmethod
+    def start() -> Behaviour:
         async def f(spawn):
-            self.greeter = await spawn(lambda: Greeter("Hello"))
-            for i in range(100):
-                await self.greeter.tell(str(i))
-            self.ping = await spawn(Ping)
-            self.pong = await spawn(Pong)
-            await self.ping.tell(self.pong)
-            await self.pong.tell(self.ping)
+            await spawn(Greeter.start("Hello"))
+            ping = await spawn(Ping.start())
+            pong = await spawn(Pong.start())
+            await ping.tell(pong)
+            await pong.tell(ping)
 
             def worker() -> Behaviour:
                 async def f(message):
                     await message.reply_to.tell(message.message)
                     return behaviour.same()
                 return behaviour.receive(f)
-            
+
             router = routers.pool(5)(worker)
             echo = await spawn(router)
             replies = await asyncio.gather(
@@ -119,4 +121,4 @@ class PingPong:
 
 def main():
     logging.basicConfig(level=logging.DEBUG)
-    asyncio.run(system(PingPong), debug=True)
+    asyncio.run(system(PingPong.start()), debug=True)

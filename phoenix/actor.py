@@ -13,14 +13,18 @@ class Ref:
 
     async def tell(self, message: Any):
         await self.inbox.put(message)
-    
-    async def ask(self, f: Callable[["Ref"], Any], timeout: Optional[Union[float, int]]=None) -> Any:
+
+    async def ask(
+        self, f: Callable[["Ref"], Any], timeout: Optional[Union[float, int]] = None
+    ) -> Any:
         """
         """
         # Create a fake actor for the destination to reply to.
         ref = Ref(Queue())
         msg = f(ref)
+
         async def interact() -> Any:
             await self.inbox.put(msg)
             return await ref.inbox.get()
+
         return await asyncio.wait_for(interact(), timeout=timeout)
