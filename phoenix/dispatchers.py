@@ -17,12 +17,12 @@ from phoenix.behaviour import Behaviour, Ignore, Schedule, Receive, Restart, Sam
 logger = logging.getLogger(__name__)
 
 
-@attr.s
-class Actor:
-    parent: Optional[Ref] = attr.ib(validator=optional(instance_of(Ref)))
-    behaviour: Behaviour = attr.ib()
-    ref: Ref = attr.ib(validator=instance_of(Ref))
-    task: asyncio.Task = attr.ib(validator=instance_of(asyncio.Task))
+# @attr.s
+# class Actor:
+#     parent: Optional[Ref] = attr.ib(validator=optional(instance_of(Ref)))
+#     behaviour: Behaviour = attr.ib()
+#     ref: Ref = attr.ib(validator=instance_of(Ref))
+#     task: asyncio.Task = attr.ib(validator=instance_of(asyncio.Task))
 
 
 @attr.s
@@ -90,12 +90,14 @@ class StopActor(Exception):
 #         await self.scheduler.put(CancelTimer(ref=self.ref, key=key))
 
 
-@attr.s
+@attr.s(frozen=True)
 class ActorContext:
     ref: Ref = attr.ib(validator=instance_of(Ref))
     """
     The Ref of this Actor.
     """
+
+    parent: Ref = attr.ib(validator=instance_of(Ref))
 
     thread: threading.Thread = attr.ib(validator=instance_of(threading.Thread))
     """
@@ -107,33 +109,34 @@ class ActorContext:
     The event loop that is executing this Actor.
     """
 
-    task: asyncio.Task = attr.ib(validator=instance_of(asyncio.Task))
+    dispatcher: Ref = attr.ib(validator=instance_of(Ref))
     """
-    The asyncio.Task that is executing this Actor.
-    """
-
-    spawner: Optional[Ref] = attr.ib(validator=optional(instance_of(Ref)))
-    """
-    Spawner that was used to spawn this Actor.
+    The dispatcher that spawned this Actor.
     """
 
-    async def spawn(self, behaviour: Behaviour, id: Optional[str] = None):
-        raise NotImplementedError
+    system: Ref = attr.ib(validator=instance_of(Ref))
+    """
+    The system that this Actor belongs to.
+    """
+
+    async def spawn(self, behaviour: Behaviour, id: Optional[str] = None, dispatcher: Optional[str] = None) -> Ref:
+        id = id or str(uuid.uuid1())
+        return await self.system.ask(system.SpawnActor(id=id, behaviour=behaviour, dispatcher=dispatcher, parent=self.ref))
     
-    
-class ActorExecutor:
+
+@attr.s
+class Actor:
     """
     Responsible for executing the behaviours returned
     by the actor's starting behaviour.
     """
+    start: Behaviour = attr.ib()
+    context: ActorContext = attr.ib(validator=instance_of(ActorContext))
 
-    def __init__(self, start: Behaviour, ref: Ref, spawner: Ref):
-        if not isinstance(start, (Ignore, Receive, Restart, Schedule, Setup)):
-            raise ValueError(f"Invalid start behaviour: {start}")
-
-        self.ref = ref
-        self.start = start
-        self.spawner = spawner
+    @start.validator
+    def check(self, attribute: str, value: Behaviour):
+        if not isinstance(value, (Ignore, Receive, Restart, Schedule, Setup)):
+            raise ValueError(f"Invalid start behaviour: {value}")
 
     async def run(self):
         """
@@ -151,7 +154,7 @@ class ActorExecutor:
         try:
             behaviours = [self.start]
             while behaviours:
-                logger.debug("[%s] Main: %s", self.ref, behaviours)
+                logger.debug("[%s] Main: %s", self.context.ref, behaviours)
                 current = behaviours.pop()
                 next_ = await self.execute(current)
                 if isinstance(next_, Same):
@@ -159,55 +162,53 @@ class ActorExecutor:
                 elif next_:
                     behaviours.append(next_)
         except RestartActor as e:
-            return ActorRestarted(ref=self.ref, behaviour=e.behaviour)
+            return ActorRestarted(ref=self.context.ref, behaviour=e.behaviour)
         except StopActor:
-            return ActorStopped(ref=self.ref)
+            return ActorStopped(ref=self.context.ref)
         except asyncio.CancelledError:
             # We were cancelled by the supervisor
             # TODO: Allow the actor to perform cleanup.
-            return ActorKilled(ref=self.ref)
+            return ActorKilled(ref=self.context.ref)
         except Exception as e:
-            logger.debug("[%s] Behaviour raised unhandled exception", self.ref, exc_info=True)
-            return ActorFailed(ref=self.ref, exc=e)
+            logger.debug("[%s] Behaviour raised unhandled exception", self.context.ref, exc_info=True)
+            return ActorFailed(ref=self.context.ref, exc=e)
 
     @dispatch(Setup)
     async def execute(self, behaviour: Setup):
-        logger.debug("[%s] Executing %s", self.ref, behaviour)
-        
-        context = ActorContext(spawner=self.spawner, ref=self.ref)
+        logger.debug("[%s] Executing %s", self.context.ref, behaviour)
 
-        next_ = await behaviour(context)
+        next_ = await behaviour(self.context)
         return next_
 
     @dispatch(Receive)
     async def execute(self, behaviour: Receive):
-        logger.debug("[%s] Executing %s", self.ref, behaviour)
-        message = await self.ref.inbox.async_q.get()
-        logger.debug("[%s] Message received: %s", self.ref, message)
+        logger.debug("[%s] Executing %s", self.context.ref, behaviour)
+        message = await self.context.ref.inbox.async_q.get()
+        logger.debug("[%s] Message received: %s", self.context.ref, message)
         try:
             next_ = await behaviour(message)
         finally:
-            self.ref.inbox.async_q.task_done()
+            self.context.ref.inbox.async_q.task_done()
         return next_
 
     @dispatch(Ignore)
     async def execute(self, behaviour: Ignore):
-        logger.debug("[%s] Executing %s", self.ref, behaviour)
+        logger.debug("[%s] Executing %s", self.context.ref, behaviour)
         try:
-            self.ref.inbox.async_q.get_nowait()
+            self.context.ref.inbox.async_q.get_nowait()
         except asyncio.QueueEmpty:
             pass
         else:
-            self.ref.inbox.async_q.task_done()
+            self.context.ref.inbox.async_q.task_done()
         return behaviour.same()
 
     @dispatch(Restart)
     async def execute(self, behaviour: Restart):
-        logger.debug("[%s] Executing %s", self.ref, behaviour)
+        logger.debug("[%s] Executing %s", self.context.ref, behaviour)
 
         behaviours = [behaviour.behaviour]
         while behaviours:
-            logger.debug("[%s] Restart: %s", self.ref, behaviours)
+            logger.debug("[%s] Restart: %s", self.context.ref, behaviours)
             current = behaviours.pop()
             try:
                 next_ = await self.execute(current)
@@ -233,13 +234,44 @@ class ActorExecutor:
 
     @dispatch(Schedule)
     async def execute(self, behaviour: Schedule):
-        logger.debug("[%s] Executing %s", self.ref, behaviour)
-        return await behaviour(Timers(self.ref))
+        logger.debug("[%s] Executing %s", self.context.ref, behaviour)
+        return await behaviour(Timers(self.context.ref))
 
     @dispatch(Stop)
     async def execute(self, behaviour: Stop):
-        logger.debug("[%s] Executing %s", self.ref, behaviour)
+        logger.debug("[%s] Executing %s", self.context.ref, behaviour)
         raise StopActor
+
+
+@attr.s
+class ActorCell:
+    """
+    Manage Actor lifecycle.
+    """
+    behaviour: Behaviour = attr.ib()
+    context: ActorContext = attr.ib(validator=instance_of(ActorContext))
+    _actor: Actor = attr.ib(init=False, validator=instance_of(Actor), default=None)
+    _task: asyncio.Task = attr.ib(init=False, validator=instance_of(asyncio.Task), default=None)
+
+    async def run(self):
+        self._actor = Actor(start=self.behaviour, context=self.context)
+        self._task = asyncio.create_task(self._actor.run())
+
+        while True:
+            result = await self._task
+            await self.handle(result)
+    
+    @dispatch(ActorRestarted)
+    async def handle(self, msg: ActorRestarted):
+        self._task = asyncio.create_task(self._actor.run())
+
+    @dispatch(ActorFailed)
+    async def handle(self, msg: ActorFailed):
+        actor = self._actors.pop(msg.ref.id)
+        # TODO: Notify parent
+
+        for child in actor.children:
+            child.task.cancel()
 
 
 async def bootstrap_execute_actor(id: str, behaviour: Behaviour, spawner: Optional[Ref] = None) -> Actor:
@@ -283,6 +315,11 @@ class ThreadExecutor(threading.Thread):
     class ActorExecuted:
         actor: Actor = attr.ib(validator=instance_of(Actor))
 
+    @attr.s
+    class SpawnerCreated:
+        executor: ThreadExecutor = attr.ib(validator=instance_of(ThreadExecutor))
+        ref: Ref = attr.ib(validator=instance_of(Ref))
+
     def __init__(self, dispatcher: Ref):
         super(ThreadExecutor, self).__init__()
 
@@ -301,7 +338,7 @@ class ThreadExecutor(threading.Thread):
             # other actors into this thread.
             spawner = await bootstrap_execute_actor(id=str(uuid.uuid1()), behaviour=Spawner.start(inbox), spawner=None)
             self._actors[spawner.ref.id] = spawner
-            await self.dispatcher.tell(ThreadDispatcher.SpawnerCreated(executor=self, ref=spawner.ref))
+            await self.dispatcher.tell(self.SpawnerCreated(executor=self, ref=spawner.ref))
 
             while True:
                 aws = [inbox.get()] + [x.task for x in self._actors.values()]
@@ -332,11 +369,6 @@ class ThreadExecutor(threading.Thread):
 
 
 class ThreadDispatcher:
-
-    @attr.s
-    class SpawnerCreated:
-        executor: ThreadExecutor = attr.ib(validator=instance_of(ThreadExecutor))
-        ref: Ref = attr.ib(validator=instance_of(Ref))
     
     @attr.s
     class SpawnActor:
@@ -367,7 +399,7 @@ class ThreadDispatcher:
     @staticmethod
     def waiting(executor: ThreadExecutor) -> Behaviour:
         async def f(message):
-            if isinstance(message, ThreadDispatcher.SpawnerCreated):
+            if isinstance(message, ThreadExecutor.SpawnerCreated):
                 return ThreadDispatcher.active(executor=executor, spawner=message.ref)
             else:
                 await message.reply_to.tell(ThreadDispatcher.NotReady())
