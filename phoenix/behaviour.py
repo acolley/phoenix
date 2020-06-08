@@ -132,4 +132,12 @@ def restart(behaviour) -> Restart:
     return Restart(behaviour=behaviour)
 
 
+class Enqueue:
+    pass
+
+
+def enqueue() -> Enqueue:
+    return Enqueue()
+
+
 Behaviour = Union[Schedule, Stop, Ignore, Setup, Receive, Same]

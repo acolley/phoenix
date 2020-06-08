@@ -15,7 +15,7 @@ from typing import Any, Callable, Optional, Union
 from phoenix import behaviour, routers
 from phoenix.actor import Ref
 from phoenix.behaviour import Behaviour
-from phoenix.system import system
+from phoenix.system.system import system
 
 
 class Greeter:
@@ -46,12 +46,12 @@ class Greeter:
 
 
 class Ping:
-    
     @staticmethod
     def start() -> Behaviour:
         async def f(pong: Ref) -> Behaviour:
             await pong.tell("ping")
             return Ping.ping(pong)
+
         return behaviour.receive(f)
 
     @staticmethod
@@ -65,7 +65,6 @@ class Ping:
 
 
 class Pong:
-
     @staticmethod
     def start() -> Behaviour:
         async def f(ping: Ref) -> Behaviour:
@@ -90,13 +89,12 @@ class EchoMsg:
 
 
 class PingPong:
-    
     @staticmethod
     def start() -> Behaviour:
-        async def f(spawn):
-            await spawn(Greeter.start("Hello"), "Greeter")
-            ping = await spawn(Ping.start(), "Ping")
-            pong = await spawn(Pong.start(), "Pong")
+        async def f(context):
+            await context.spawn(Greeter.start("Hello"), "Greeter")
+            ping = await context.spawn(Ping.start(), "Ping")
+            pong = await context.spawn(Pong.start(), "Pong")
             await ping.tell(pong)
             await pong.tell(ping)
 
@@ -104,10 +102,11 @@ class PingPong:
                 async def f(message):
                     await message.reply_to.tell(message.message)
                     return behaviour.same()
+
                 return behaviour.receive(f)
 
             router = routers.pool(5)(worker())
-            echo = await spawn(router, "Router")
+            echo = await context.spawn(router, "Router")
             replies = await asyncio.gather(
                 echo.ask(partial(EchoMsg, message="Echooooo")),
                 echo.ask(partial(EchoMsg, message="Meeeeeee")),
@@ -120,5 +119,5 @@ class PingPong:
 
 
 def main():
-    # logging.basicConfig(level=logging.DEBUG)
-    asyncio.run(system(Greeter.start("Hello")), debug=True)
+    logging.basicConfig(level=logging.DEBUG)
+    asyncio.run(system(PingPong.start()), debug=True)

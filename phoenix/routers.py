@@ -37,4 +37,5 @@ class PoolRouter:
 def pool(size: int) -> Callable[[], Callable[[], Behaviour]]:
     def _factory(worker_behaviour: Behaviour) -> Behaviour:
         return PoolRouter.start(worker_behaviour, size)
+
     return _factory
