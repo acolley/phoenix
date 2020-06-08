@@ -5,6 +5,7 @@ import concurrent.futures
 import janus
 import logging
 from multipledispatch import dispatch
+from pyrsistent import v
 import queue
 import threading
 import time
@@ -161,17 +162,30 @@ class ThreadDispatcher:
             executor = ThreadExecutor(dispatcher=context.ref, system=context.system)
             executor.daemon = True
             executor.start()
-            return ThreadDispatcher.waiting(executor)
+            return ThreadDispatcher.waiting(executor, v())
 
         return behaviour.setup(f)
 
     @staticmethod
-    def waiting(executor: ThreadExecutor) -> Behaviour:
+    def waiting(executor: ThreadExecutor, requests) -> Behaviour:
         async def f(message):
             if isinstance(message, SpawnerCreated):
+                # now the spawner is ready, process all requests that were waiting
+                for request in requests:
+                    reply = await message.ref.ask(
+                        lambda reply_to: Spawner.SpawnActor(
+                            reply_to=reply_to,
+                            id=request.id,
+                            behaviour=request.behaviour,
+                            parent=request.parent,
+                        )
+                    )
+                    await request.reply_to.tell(ThreadDispatcher.ActorSpawned(ref=reply.ref))
+
                 return ThreadDispatcher.active(executor=executor, spawner=message.ref)
             else:
-                return behaviour.enqueue()
+                # spawner is not ready yet, so queue up the request
+                return ThreadDispatcher.waiting(executor=executor, requests=requests.append(message))
 
         return behaviour.receive(f)
 

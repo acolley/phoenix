@@ -11,7 +11,6 @@ import uuid
 
 from phoenix.behaviour import (
     Behaviour,
-    Enqueue,
     Ignore,
     Receive,
     Restart,
@@ -182,12 +181,7 @@ class Actor:
             next_ = await behaviour(message)
         finally:
             self.context.ref.inbox.async_q.task_done()
-
-        if isinstance(next_, Enqueue):
-            await self.context.ref.inbox.async_q.put(message)
-            return Same()
-        else:
-            return next_
+        return next_
 
     @dispatch(Ignore)
     async def execute(self, behaviour: Ignore):
@@ -268,7 +262,7 @@ class ActorCell:
 
     @dispatch(ActorFailed)
     async def handle(self, msg: ActorFailed):
-        await self.context.system.put(SysActorFailed(context=self.context))
+        await self.context.system.tell(SysActorFailed(context=self.context))
 
         # TODO: Notify parent
         # TODO: Kill children
