@@ -228,9 +228,11 @@ async def system(user: Behaviour):
                 behaviours = [self.start]
                 while behaviours:
                     logger.debug("Actor [%s] Main: %s", self.ref, behaviours)
-                    current = behaviours[-1]
+                    current = behaviours.pop()
                     next_ = await self.execute(current)
-                    if next_:
+                    if isinstance(next_, Same):
+                        behaviours.append(current)
+                    elif next_:
                         behaviours.append(next_)
             except RestartActor as e:
                 return ActorRestarted(ref=self.ref, behaviour=e.behaviour)
@@ -272,7 +274,7 @@ async def system(user: Behaviour):
                 pass
             else:
                 self.ref.inbox.task_done()
-            return
+            return behaviour.same()
 
         @dispatch(Restart)
         async def execute(self, behaviour: Restart):
@@ -299,19 +301,15 @@ async def system(user: Behaviour):
 
                     raise RestartActor(attr.evolve(behaviour, restarts=behaviour.restarts + 1))
                 else:
-                    if next_:
+                    if isinstance(next_, Same):
+                        behaviours.append(current)
+                    elif next_:
                         behaviours.append(next_)
 
         @dispatch(Schedule)
         async def execute(self, behaviour: Schedule):
             logger.debug("Executing %s", behaviour)
             return await behaviour(Timers(self.ref))
-
-        @dispatch(Same)
-        async def execute(self, behaviour: Same):
-            logger.debug("Executing %s", behaviour)
-            # FIXME: executing Same does not work in this implementation
-            return
 
         @dispatch(Stop)
         async def execute(self, behaviour: Stop):
