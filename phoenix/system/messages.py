@@ -17,4 +17,4 @@ class SpawnActor:
 
 @attr.s(frozen=True)
 class ActorSpawned:
-    ref: Ref = attr.ib(validator=instance_of(Ref))
+    cell = attr.ib()

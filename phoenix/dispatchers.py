@@ -74,7 +74,7 @@ class Spawner:
 
     @attr.s
     class ActorSpawned:
-        ref: Ref = attr.ib(validator=instance_of(Ref))
+        cell: ActorCell = attr.ib(validator=instance_of(ActorCell))
 
     @staticmethod
     def start() -> Behaviour:
@@ -98,7 +98,7 @@ class Spawner:
                 ),
             )
             asyncio.create_task(cell.run())
-            await message.reply_to.tell(Spawner.ActorSpawned(ref=ref))
+            await message.reply_to.tell(Spawner.ActorSpawned(cell=cell))
             return behaviour.same()
 
         return behaviour.receive(f)
@@ -154,7 +154,7 @@ class ThreadDispatcher:
 
     @attr.s
     class ActorSpawned:
-        ref: Ref = attr.ib(validator=instance_of(Ref))
+        cell: ActorCell = attr.ib(validator=instance_of(ActorCell))
 
     @staticmethod
     def start(max_threads: int) -> Behaviour:
@@ -180,7 +180,7 @@ class ThreadDispatcher:
                             parent=request.parent,
                         )
                     )
-                    await request.reply_to.tell(ThreadDispatcher.ActorSpawned(ref=reply.ref))
+                    await request.reply_to.tell(ThreadDispatcher.ActorSpawned(cell=reply.cell))
 
                 return ThreadDispatcher.active(executor=executor, spawner=message.ref)
             else:
@@ -200,7 +200,7 @@ class ThreadDispatcher:
                     parent=message.parent,
                 )
             )
-            await message.reply_to.tell(ThreadDispatcher.ActorSpawned(ref=reply.ref))
+            await message.reply_to.tell(ThreadDispatcher.ActorSpawned(cell=reply.cell))
             return behaviour.same()
 
         return behaviour.receive(f)

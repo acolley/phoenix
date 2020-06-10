@@ -14,10 +14,10 @@ class PoolRouter:
 
     @staticmethod
     def start(worker_behaviour: Behaviour, size: int) -> Behaviour:
-        async def f(spawn):
+        async def f(context):
             workers = v()
             for _ in range(size):
-                worker = await spawn(worker_behaviour)
+                worker = await context.spawn(worker_behaviour)
                 workers = workers.append(worker)
             return PoolRouter.work(workers, 0)
 

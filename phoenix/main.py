@@ -38,7 +38,7 @@ class Greeter:
     def active(greeting: str, count: int) -> Behaviour:
         async def f(message: Greeter.Timeout):
             print(f"{greeting} {count}")
-            if count > 5:
+            if count > 1:
                 raise Exception("Boooooom!!!")
             return Greeter.active(greeting, count + 1)
 
@@ -48,8 +48,14 @@ class Greeter:
 class Ping:
     @staticmethod
     def start() -> Behaviour:
+        async def f(context):
+            return Ping.wait_for_pong(context)
+        return behaviour.setup(f)
+    
+    @staticmethod
+    def wait_for_pong(context) -> Behaviour:
         async def f(pong: Ref) -> Behaviour:
-            await pong.tell("ping")
+            await pong.tell(context.ref)
             return Ping.ping(pong)
 
         return behaviour.receive(f)
@@ -96,7 +102,6 @@ class PingPong:
             ping = await context.spawn(Ping.start(), "Ping")
             pong = await context.spawn(Pong.start(), "Pong")
             await ping.tell(pong)
-            await pong.tell(ping)
 
             def worker() -> Behaviour:
                 async def f(message):

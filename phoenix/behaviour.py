@@ -7,11 +7,15 @@ from typing import Callable, Optional, Union
 # TODO: make it easier to inspect the graph of behaviours that constitute an actor
 
 
-class Receive(PRecord):
+@attr.s
+class Receive:
 
-    f = field(
-        invariant=lambda x: (inspect.iscoroutinefunction(x), f"Not a coroutine: {x}")
-    )
+    f = attr.ib()
+    
+    @f.validator
+    def check(self, attribute: str, value):
+        if not inspect.iscoroutinefunction(value):
+            raise ValueError(f"Not a coroutine: {value}")
 
     async def __call__(self, message):
         return await self.f(message)
@@ -28,11 +32,15 @@ def receive_decorator(f):
     return _receive
 
 
-class Setup(PRecord):
+@attr.s
+class Setup:
 
-    f = field(
-        invariant=lambda x: (inspect.iscoroutinefunction(x), f"Not a coroutine: {x}")
-    )
+    f = attr.ib()
+    
+    @f.validator
+    def check(self, attribute: str, value):
+        if not inspect.iscoroutinefunction(value):
+            raise ValueError(f"Not a coroutine: {value}")
 
     async def __call__(self, spawn):
         return await self.f(spawn)
@@ -99,6 +107,7 @@ class Restart:
     """
 
     behaviour = attr.ib(validator=instance_of((Schedule, Setup, Receive, Same, Ignore)))
+    name: Optional[str] = attr.ib(validator=optional(instance_of(str)), default=None)
     max_restarts: Optional[int] = attr.ib(
         validator=optional(instance_of(int)), default=3
     )

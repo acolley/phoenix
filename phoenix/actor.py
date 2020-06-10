@@ -2,6 +2,8 @@ import abc
 import asyncio
 import attr
 from attr.validators import instance_of, optional
+import contextlib
+from datetime import timedelta
 import janus
 import logging
 from multipledispatch import dispatch
@@ -54,7 +56,12 @@ class ActorContext:
     The system that this Actor belongs to.
     """
 
-    children: List[Ref] = attr.ib(default=[])
+    # FIXME: come up with a different way to allow the
+    # parent actor kill its children on exit.
+    # This should ideally only contain a list of Refs
+    # for an actor implementer to communicate with their
+    # children.
+    children: List["ActorCell"] = attr.ib(default=[])
 
     async def spawn(
         self,
@@ -63,14 +70,14 @@ class ActorContext:
         dispatcher: Optional[str] = None,
     ) -> Ref:
         id = id or str(uuid.uuid1())
-        ref = await self.system.ask(
+        response = await self.system.ask(
             lambda reply_to:
             SpawnActor(
                 reply_to=reply_to, id=id, behaviour=behaviour, dispatcher=dispatcher, parent=self.ref
             )
         )
-        self.children.append(ref)
-        return ref
+        self.children.append(response.cell)
+        return response.cell.context.ref
 
 
 @attr.s
@@ -112,6 +119,56 @@ class StopActor(Exception):
 
 
 @attr.s
+class Timers:
+    ref: Ref = attr.ib(validator=instance_of(Ref))
+    lock: asyncio.Lock = attr.ib(validator=instance_of(asyncio.Lock))
+    _timers = attr.ib(init=False, default={})
+
+    async def start_fixed_delay_timer(self, message: Any, delay: timedelta, name: Optional[str] = None):
+        name = name or str(uuid.uuid1())
+
+        async def _fixed_delay_timer():
+            while True:
+                await asyncio.sleep(delay.total_seconds())
+                await self.ref.tell(message)
+        
+        async with self.lock:
+            if name in self._timers:
+                raise ValueError(f"Timer `{name}` already exists.")
+
+            self._timers[name] = asyncio.create_task(_fixed_delay_timer())
+    
+    async def start_single_shot_timer(self, message: Any, delay: timedelta, name: Optional[str] = None):
+        name = name or str(uuid.uuid1())
+
+        async def _single_shot_timer():
+            asyncio.sleep(delay.total_seconds())
+            await self.ref.tell(message)
+            await self.cancel(name)
+        
+        async with self.lock:
+            if name in self._timers:
+                raise ValueError(f"Timer `{name}` already exists.")
+
+            self._timers[name] = asyncio.create_task(_single_shot_timer())
+
+    async def cancel(self, name: str):
+        async with self.lock:
+            timer = self._timers.pop(name)
+            timer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await timer
+
+    async def cancel_all(self):
+        async with self.lock:
+            timers = self._timers.values()
+            for timer in timers:
+                timer.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await timer
+
+
+@attr.s
 class Actor:
     """
     Responsible for executing the behaviours returned
@@ -120,6 +177,7 @@ class Actor:
 
     start: Behaviour = attr.ib()
     context: ActorContext = attr.ib(validator=instance_of(ActorContext))
+    timers: Timers = attr.ib(validator=instance_of(Timers))
 
     @start.validator
     def check(self, attribute: str, value: Behaviour):
@@ -154,7 +212,7 @@ class Actor:
         except StopActor:
             return ActorStopped(ref=self.context.ref)
         except asyncio.CancelledError:
-            # We were cancelled by the supervisor
+            # We were deliberately cancelled.
             # TODO: Allow the actor to perform cleanup.
             return ActorKilled(ref=self.context.ref)
         except Exception as e:
@@ -225,7 +283,7 @@ class Actor:
     @dispatch(Schedule)
     async def execute(self, behaviour: Schedule):
         logger.debug("[%s] Executing %s", self.context.ref, behaviour)
-        return await behaviour(Timers(self.context.ref))
+        return await behaviour(self.timers)
 
     @dispatch(Stop)
     async def execute(self, behaviour: Stop):
@@ -241,28 +299,51 @@ class ActorCell:
 
     behaviour: Behaviour = attr.ib()
     context: ActorContext = attr.ib(validator=instance_of(ActorContext))
-    _actor: Actor = attr.ib(
+    _actor: Optional[Actor] = attr.ib(
         init=False, validator=optional(instance_of(Actor)), default=None
     )
-    _task: asyncio.Task = attr.ib(
+    _task: Optional[asyncio.Task] = attr.ib(
         init=False, validator=optional(instance_of(asyncio.Task)), default=None
     )
+    _timers: Optional[Timers] = attr.ib(init=False, validator=optional(instance_of(Timers)), default=None)
 
     async def run(self):
-        self._actor = Actor(start=self.behaviour, context=self.context)
-        self._task = asyncio.create_task(self._actor.run())
+        self._timers = Timers(ref=self.context.ref, lock=asyncio.Lock())
+        self._actor = Actor(start=self.behaviour, context=self.context, timers=self._timers)
 
-        while True:
-            result = await self._task
-            await self.handle(result)
+        try:
+            self._task = asyncio.create_task(self._actor.run())
+
+            while True:
+                result = await self._task
+                await self.handle(result)
+        except asyncio.CancelledError:
+            self._task.cancel()
+            await self._timers.cancel_all()
+
+    async def stop(self):
+        # This is called from ActorCell.handle(ActorFailed)
+        # in order to stop child actors.
+        # NOTE: is this thread-safe???
+        self._task.cancel()
 
     @dispatch(ActorRestarted)
     async def handle(self, msg: ActorRestarted):
+        await self._timers.cancel_all()
+        self._timers = Timers(ref=self.context.ref, lock=asyncio.Lock())
+        self._actor = Actor(start=msg.behaviour, context=self.context, timers=self._timers)
         self._task = asyncio.create_task(self._actor.run())
+    
+    @dispatch(ActorKilled)
+    async def handle(self, msg: ActorKilled):
+        # TODO: Notify parent
+        # NOTE: is this thread-safe???
+        for child in self.context.children:
+            await child.stop()
 
     @dispatch(ActorFailed)
     async def handle(self, msg: ActorFailed):
-        await self.context.system.tell(SysActorFailed(context=self.context))
-
         # TODO: Notify parent
-        # TODO: Kill children
+        # NOTE: is this thread-safe???
+        for child in self.context.children:
+            await child.stop()

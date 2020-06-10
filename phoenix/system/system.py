@@ -15,13 +15,17 @@ import uuid
 from phoenix import behaviour
 from phoenix.actor import ActorCell, ActorContext
 from phoenix.behaviour import Behaviour
-from phoenix.dispatchers import ThreadDispatcher
+from phoenix.dispatchers import Spawner, ThreadDispatcher
 from phoenix.ref import Ref
 from phoenix.system.messages import ActorSpawned, SpawnActor
 
 logger = logging.getLogger(__name__)
 
 
+# TODO: make the system behave like a Ref for testing and simple experiments.
+# For example for testing:
+# * User creates a system with the Actor under test.
+# * Send messages to system to observe behaviour.
 async def system(user: Behaviour):
 
     # @attr.s
@@ -221,16 +225,16 @@ async def system(user: Behaviour):
     def active(dispatchers) -> Behaviour:
         @dispatch(SpawnActor)
         async def handle(msg: SpawnActor):
-            dispatcher = dispatchers[msg.dispatcher]
-            ref = await dispatcher.ask(
-                lambda reply_to: SpawnActor(
+            dispatcher = dispatchers[msg.dispatcher or "default"]
+            response = await dispatcher.ask(
+                lambda reply_to: Spawner.SpawnActor(
                     reply_to=reply_to,
                     id=msg.id,
                     behaviour=msg.behaviour,
                     parent=msg.parent,
                 )
             )
-            await msg.reply_to.tell(ActorSpawned(ref=ref))
+            await msg.reply_to.tell(ActorSpawned(cell=response.cell))
 
         async def f(msg):
             await handle(msg)
@@ -243,7 +247,7 @@ async def system(user: Behaviour):
             dispatchers = m(default=default_dispatcher)
             return active(dispatchers)
 
-        return behaviour.receive(f)
+        return behaviour.setup(f)
     
     root_ref = Ref(id="root", inbox=janus.Queue())
     system_ref = Ref(id="system", inbox=janus.Queue())
