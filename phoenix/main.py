@@ -13,8 +13,8 @@ import traceback
 from typing import Any, Callable, Optional, Union
 
 from phoenix import behaviour, routers
-from phoenix.actor import Ref
 from phoenix.behaviour import Behaviour
+from phoenix.ref import Ref
 from phoenix.system.system import system
 
 

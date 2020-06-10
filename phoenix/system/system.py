@@ -13,7 +13,8 @@ from typing import Any, Callable, Generic, Optional, TypeVar
 import uuid
 
 from phoenix import behaviour
-from phoenix.actor import ActorCell, ActorContext
+from phoenix.actor.actor import ActorContext
+from phoenix.actor.cell import ActorCell
 from phoenix.behaviour import Behaviour
 from phoenix.dispatchers import Spawner, ThreadDispatcher
 from phoenix.ref import Ref

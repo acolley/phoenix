@@ -2,8 +2,8 @@ from pyrsistent import v
 from typing import Any, Callable, List
 
 from phoenix import behaviour
-from phoenix.actor import Ref
 from phoenix.behaviour import Behaviour
+from phoenix.ref import Ref
 
 
 class PoolRouter:

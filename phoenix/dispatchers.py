@@ -13,7 +13,8 @@ from typing import Any, List, Optional
 import uuid
 
 from phoenix import behaviour
-from phoenix.actor import ActorCell, ActorContext
+from phoenix.actor.actor import ActorContext
+from phoenix.actor.cell import ActorCell
 from phoenix.behaviour import (
     Behaviour,
     Ignore,
@@ -27,41 +28,6 @@ from phoenix.behaviour import (
 from phoenix.ref import Ref
 
 logger = logging.getLogger(__name__)
-
-
-# @attr.s
-# class Actor:
-#     parent: Optional[Ref] = attr.ib(validator=optional(instance_of(Ref)))
-#     behaviour: Behaviour = attr.ib()
-#     ref: Ref = attr.ib(validator=instance_of(Ref))
-#     task: asyncio.Task = attr.ib(validator=instance_of(asyncio.Task))
-
-
-# @attr.s
-# class Timers:
-#     scheduler = attr.ib()
-#     ref: Ref = attr.ib(validator=instance_of(Ref))
-
-#     async def start_singleshot_timer(
-#         self, message: Any, interval: timedelta, key: Optional[str] = None
-#     ):
-#         await self.scheduler.put(
-#             StartSingleShotTimer(
-#                 ref=self.ref, message=message, interval=interval, key=key
-#             )
-#         )
-
-#     async def start_fixed_delay_timer(
-#         self, message: Any, interval: timedelta, key: Optional[str] = None
-#     ):
-#         await self.scheduler.put(
-#             StartFixedDelayTimer(
-#                 ref=self.ref, message=message, interval=interval, key=key
-#             )
-#         )
-
-#     async def cancel(self, key: str):
-#         await self.scheduler.put(CancelTimer(ref=self.ref, key=key))
 
 
 class Spawner:
