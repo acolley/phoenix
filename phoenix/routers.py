@@ -16,8 +16,8 @@ class PoolRouter:
     def start(worker_behaviour: Behaviour, size: int) -> Behaviour:
         async def f(context):
             workers = v()
-            for _ in range(size):
-                worker = await context.spawn(worker_behaviour)
+            for i in range(size):
+                worker = await context.spawn(worker_behaviour, f"{context.ref.id}-{i}")
                 workers = workers.append(worker)
             return PoolRouter.work(workers, 0)
 

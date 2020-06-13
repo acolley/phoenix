@@ -15,28 +15,32 @@ class Timers:
     lock: asyncio.Lock = attr.ib(validator=instance_of(asyncio.Lock))
     _timers = attr.ib(init=False, default={})
 
-    async def start_fixed_delay_timer(self, message: Any, delay: timedelta, name: Optional[str] = None):
+    async def start_fixed_delay_timer(
+        self, message: Any, delay: timedelta, name: Optional[str] = None
+    ):
         name = name or str(uuid.uuid1())
 
         async def _fixed_delay_timer():
             while True:
                 await asyncio.sleep(delay.total_seconds())
                 await self.ref.tell(message)
-        
+
         async with self.lock:
             if name in self._timers:
                 raise ValueError(f"Timer `{name}` already exists.")
 
             self._timers[name] = asyncio.create_task(_fixed_delay_timer())
-    
-    async def start_single_shot_timer(self, message: Any, delay: timedelta, name: Optional[str] = None):
+
+    async def start_single_shot_timer(
+        self, message: Any, delay: timedelta, name: Optional[str] = None
+    ):
         name = name or str(uuid.uuid1())
 
         async def _single_shot_timer():
             asyncio.sleep(delay.total_seconds())
             await self.ref.tell(message)
             await self.cancel(name)
-        
+
         async with self.lock:
             if name in self._timers:
                 raise ValueError(f"Timer `{name}` already exists.")
@@ -52,8 +56,9 @@ class Timers:
 
     async def cancel_all(self):
         async with self.lock:
-            timers = self._timers.values()
-            for timer in timers:
+            names = list(self._timers.keys())
+            for name in names:
+                timer = self._timers.pop(name)
                 timer.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await timer

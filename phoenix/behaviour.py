@@ -11,7 +11,7 @@ from typing import Callable, Optional, Union
 class Receive:
 
     f = attr.ib()
-    
+
     @f.validator
     def check(self, attribute: str, value):
         if not inspect.iscoroutinefunction(value):
@@ -36,7 +36,7 @@ def receive_decorator(f):
 class Setup:
 
     f = attr.ib()
-    
+
     @f.validator
     def check(self, attribute: str, value):
         if not inspect.iscoroutinefunction(value):

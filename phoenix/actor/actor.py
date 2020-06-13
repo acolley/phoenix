@@ -23,7 +23,7 @@ from phoenix.behaviour import (
     Stop,
 )
 from phoenix.ref import Ref
-from phoenix.system.messages import SpawnActor
+from phoenix.system import messages
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +57,7 @@ class ActorContext:
     The system that this Actor belongs to.
     """
 
-    # FIXME: come up with a different way to allow the
-    # parent actor kill its children on exit.
-    # This should ideally only contain a list of Refs
-    # for an actor implementer to communicate with their
-    # children.
-    children: List["ActorCell"] = attr.ib(default=[])
+    children: List[Ref] = attr.ib(default=[])
 
     async def spawn(
         self,
@@ -72,13 +67,29 @@ class ActorContext:
     ) -> Ref:
         id = id or str(uuid.uuid1())
         response = await self.system.ask(
-            lambda reply_to:
-            SpawnActor(
-                reply_to=reply_to, id=id, behaviour=behaviour, dispatcher=dispatcher, parent=self.ref
+            lambda reply_to: messages.SpawnActor(
+                reply_to=reply_to,
+                id=id,
+                behaviour=behaviour,
+                dispatcher=dispatcher,
+                parent=self.ref,
             )
         )
-        self.children.append(response.cell)
-        return response.cell.context.ref
+        self.children.append(response.ref)
+        return response.ref
+
+    async def stop(self, ref: Ref):
+        # Stop a child actor
+        try:
+            self.children.remove(ref)
+        except KeyError:
+            raise ValueError("Not a child of this actor: `{ref}`")
+        await self.system.ask(
+            lambda reply_to: messages.StopActor(
+                reply_to=reply_to,
+                ref=ref,
+            )
+        )
 
 
 @attr.s

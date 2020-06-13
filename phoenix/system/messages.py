@@ -6,6 +6,10 @@ from phoenix.behaviour import Behaviour
 from phoenix.ref import Ref
 
 
+class Confirmation:
+    pass
+
+
 @attr.s(frozen=True)
 class SpawnActor:
     reply_to: Ref = attr.ib(validator=instance_of(Ref))
@@ -17,4 +21,15 @@ class SpawnActor:
 
 @attr.s(frozen=True)
 class ActorSpawned:
-    cell = attr.ib()
+    ref: Ref = attr.ib(validator=instance_of(Ref))
+
+
+@attr.s(frozen=True)
+class StopActor:
+    reply_to: Ref = attr.ib(validator=instance_of(Ref))
+    ref: Ref = attr.ib(validator=instance_of(Ref))
+
+
+@attr.s(frozen=True)
+class ActorStopped:
+    ref: Ref = attr.ib(validator=instance_of(Ref))

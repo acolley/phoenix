@@ -50,8 +50,9 @@ class Ping:
     def start() -> Behaviour:
         async def f(context):
             return Ping.wait_for_pong(context)
+
         return behaviour.setup(f)
-    
+
     @staticmethod
     def wait_for_pong(context) -> Behaviour:
         async def f(pong: Ref) -> Behaviour:
