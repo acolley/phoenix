@@ -16,14 +16,14 @@ class Timers:
     lock: asyncio.Lock = attr.ib(validator=instance_of(asyncio.Lock))
     _timers = attr.ib(init=False, default=m())
 
-    async def start_fixed_delay_timer(
-        self, message: Any, delay: timedelta, name: Optional[str] = None
+    async def start_fixed_rate_timer(
+        self, message: Any, interval: timedelta, name: Optional[str] = None
     ):
         name = name or str(uuid.uuid1())
 
-        async def _fixed_delay_timer():
+        async def _fixed_rate_timer():
             while True:
-                await asyncio.sleep(delay.total_seconds())
+                await asyncio.sleep(interval.total_seconds())
                 await self.ref.tell(message)
 
         async with self.lock:
@@ -31,7 +31,7 @@ class Timers:
                 raise ValueError(f"Timer `{name}` already exists.")
 
             self._timers = self._timers.set(
-                name, asyncio.create_task(_fixed_delay_timer())
+                name, asyncio.create_task(_fixed_rate_timer())
             )
 
     async def start_single_shot_timer(
