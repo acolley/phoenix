@@ -96,10 +96,15 @@ class EchoMsg:
 
 
 class PingPong:
+    @attr.s
+    class GreeterStopped:
+        pass
+
     @staticmethod
     def start() -> Behaviour:
         async def f(context):
-            await context.spawn(Greeter.start("Hello"), "Greeter")
+            greeter = await context.spawn(Greeter.start("Hello"), "Greeter")
+            await context.watch(greeter, PingPong.GreeterStopped())
             ping = await context.spawn(Ping.start(), "Ping")
             pong = await context.spawn(Pong.start(), "Pong")
             await ping.tell(pong)
@@ -119,9 +124,17 @@ class PingPong:
             )
             print(replies)
 
-            return behaviour.ignore()
+            return PingPong.active(context)
 
         return behaviour.restart(behaviour.setup(f))
+    
+    @staticmethod
+    def active(context) -> Behaviour:
+        async def f(msg):
+            logging.info("Creating a new greeter")
+            await context.spawn(Greeter.start("Hello 2"), "Greeter")
+            return behaviour.same()
+        return behaviour.receive(f)
 
 
 def main():

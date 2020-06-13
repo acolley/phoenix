@@ -3,9 +3,12 @@ import asyncio
 import attr
 from attr.validators import instance_of, optional
 import janus
+import logging
 import threading
 from typing import Any, Callable, Optional, Union
 import uuid
+
+logger = logging.getLogger(__name__)
 
 
 @attr.s(frozen=True, repr=False)
@@ -36,7 +39,7 @@ class Ref:
     ) -> Any:
         """
         """
-        # Create a fake actor for the destination to reply to.
+        # Create a fake actor ref for the destination to reply to.
         ref = Ref(id=str(uuid.uuid1()), inbox=janus.Queue())
         msg = f(ref)
 

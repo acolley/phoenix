@@ -25,9 +25,16 @@ from phoenix.system.messages import (
     Confirmation,
     SpawnActor,
     StopActor,
+    WatchActor,
 )
 
 logger = logging.getLogger(__name__)
+
+
+@attr.s
+class Watcher:
+    ref: Ref = attr.ib(validator=instance_of(Ref))
+    msg: Any = attr.ib()
 
 
 @attr.s
@@ -37,6 +44,10 @@ class SystemState:
             key_validator=instance_of(str), value_validator=instance_of(Ref)
         )
     )
+    watchers: Mapping[Ref, Watcher] = attr.ib(validator=deep_mapping(key_validator=instance_of(Ref), value_validator=instance_of(Watcher)))
+    """
+    Mapping from watched to watcher (i.e. child to parent).
+    """
     actor_dispatcher: Mapping[Ref, Ref] = attr.ib(
         validator=deep_mapping(
             key_validator=instance_of(Ref), value_validator=instance_of(Ref)
@@ -99,7 +110,6 @@ async def system(user: Behaviour):
 
             @dispatch(StopActor)
             async def system_handle(msg: StopActor):
-                # TODO: notify watchers
                 # Stop all descendants recursively
                 refs = [msg.ref]
                 descendants = v()
@@ -108,25 +118,48 @@ async def system(user: Behaviour):
                 while refs:
                     ref = refs.pop()
                     children = state.actor_hierarchy.get(ref, v())
-                    descendants = descendants.extend(children)
+                    descendants = descendants.append(ref)
                     refs.extend(children)
                     actor_hierarchy = actor_hierarchy.discard(ref)
                     actor_dispatcher = actor_dispatcher.remove(ref)
 
-                refs = [msg.ref] + children
-                dispatchers = [state.actor_dispatcher[ref] for ref in refs]
+                descendants = descendants.remove(msg.ref)
+                dispatchers = [state.actor_dispatcher[ref] for ref in descendants]
+                dispatcher = state.actor_dispatcher[msg.ref]
 
                 aws = [
                     dispatcher.ask(
-                        # TODO: shared dispatcher messages
+                        lambda reply_to: ThreadDispatcher.RemoveActor(
+                            reply_to=reply_to, ref=msg.ref
+                        )
+                    )
+                ] + [
+                    disp.ask(
+                        # TODO: shared dispatcher messages not specific to ThreadDispatcher
                         lambda reply_to, ref=ref: ThreadDispatcher.StopActor(
                             reply_to=reply_to, ref=ref
                         )
                     )
-                    for dispatcher, ref in zip(dispatchers, refs)
+                    for disp, ref in zip(dispatchers, descendants)
                 ]
                 # TODO: check for valid return values
                 await asyncio.gather(*aws)
+
+                try:
+                    watcher = state.watchers[msg.ref]
+                except KeyError:
+                    watcher = None
+
+                # Remove all watchers
+                watchers = state.watchers
+                for ref in descendants.append(msg.ref):
+                    watchers = watchers.discard(ref)
+
+                # Notify watcher
+                # We do not notify all descendants watchers as those can only
+                # be their already-killed parents.
+                if watcher:
+                    await watcher.ref.tell(watcher.msg)
 
                 await msg.reply_to.tell(ActorStopped(ref=msg.ref))
 
@@ -135,12 +168,12 @@ async def system(user: Behaviour):
                         state,
                         actor_dispatcher=actor_dispatcher,
                         actor_hierarchy=actor_hierarchy,
+                        watchers=watchers,
                     )
                 )
 
             @dispatch(cell.ActorStopped)
             async def system_handle(msg: cell.ActorStopped):
-                # TODO: notify watchers
                 # Stop all descendants recursively
                 refs = [msg.ref]
                 descendants = v()
@@ -149,15 +182,15 @@ async def system(user: Behaviour):
                 while refs:
                     ref = refs.pop()
                     children = state.actor_hierarchy.get(ref, v())
-                    descendants = descendants.extend(children)
+                    descendants = descendants.append(ref)
                     refs.extend(children)
                     actor_hierarchy = actor_hierarchy.discard(ref)
                     actor_dispatcher = actor_dispatcher.remove(ref)
 
-                dispatchers = [state.actor_dispatcher[ref] for ref in children]
+                descendants = descendants.remove(msg.ref)
+                dispatchers = [state.actor_dispatcher[ref] for ref in descendants]
                 dispatcher = state.actor_dispatcher[msg.ref]
 
-                # FIXME: it is a bit naughty to use cell.ActorStopped as part of this
                 aws = [
                     dispatcher.ask(
                         lambda reply_to: ThreadDispatcher.RemoveActor(
@@ -165,16 +198,32 @@ async def system(user: Behaviour):
                         )
                     )
                 ] + [
-                    dispatcher.ask(
-                        # TODO: shared dispatcher messages
+                    disp.ask(
+                        # TODO: shared dispatcher messages not specific to ThreadDispatcher
                         lambda reply_to, ref=ref: ThreadDispatcher.StopActor(
                             reply_to=reply_to, ref=ref
                         )
                     )
-                    for dispatcher, ref in zip(dispatchers, refs)
+                    for disp, ref in zip(dispatchers, descendants)
                 ]
                 # TODO: check for valid return values
                 await asyncio.gather(*aws)
+
+                try:
+                    watcher = state.watchers[msg.ref]
+                except KeyError:
+                    watcher = None
+
+                # Remove all watchers
+                watchers = state.watchers
+                for ref in descendants.append(msg.ref):
+                    watchers = watchers.discard(ref)
+
+                # Notify watcher
+                # We do not notify all child watchers as those 
+                # can only be their already-killed parents.
+                if watcher:
+                    await watcher.ref.tell(watcher.msg)
 
                 # ActorStopped messages do not expect replies.
 
@@ -183,6 +232,17 @@ async def system(user: Behaviour):
                         state,
                         actor_dispatcher=actor_dispatcher,
                         actor_hierarchy=actor_hierarchy,
+                        watchers=watchers,
+                    )
+                )
+            
+            @dispatch(WatchActor)
+            async def system_handle(msg: WatchActor):
+                await msg.reply_to.tell(Confirmation())
+                return active(
+                    attr.evolve(
+                        state,
+                        watchers=state.watchers.set(msg.ref, Watcher(ref=msg.parent, msg=msg.message)),
                     )
                 )
 
@@ -197,6 +257,7 @@ async def system(user: Behaviour):
                     dispatchers=m(default=default_dispatcher),
                     actor_dispatcher=m(),
                     actor_hierarchy=m().set(root, v()),
+                    watchers=m(),
                 )
             )
 

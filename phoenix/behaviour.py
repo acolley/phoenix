@@ -1,7 +1,6 @@
 import attr
 from attr.validators import instance_of, optional
 import inspect
-from pyrsistent import PRecord, field
 from typing import Callable, Optional, Union
 
 # TODO: make it easier to inspect the graph of behaviours that constitute an actor
@@ -42,8 +41,8 @@ class Setup:
         if not inspect.iscoroutinefunction(value):
             raise ValueError(f"Not a coroutine: {value}")
 
-    async def __call__(self, spawn):
-        return await self.f(spawn)
+    async def __call__(self, context):
+        return await self.f(context)
 
 
 def setup(f) -> Setup:

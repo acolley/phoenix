@@ -83,11 +83,25 @@ class ActorContext:
         try:
             self.children.remove(ref)
         except KeyError:
-            raise ValueError("Not a child of this actor: `{ref}`")
+            raise ValueError(f"Must be a child of this actor: `{ref}`")
         await self.system.ask(
             lambda reply_to: messages.StopActor(
                 reply_to=reply_to,
                 ref=ref,
+            )
+        )
+    
+    async def watch(self, ref: Ref, msg: Any):
+        # Watch a child actor
+        if ref not in self.children:
+            raise ValueError(f"Must be a child of this actor: `{ref}`")
+
+        await self.system.ask(
+            lambda reply_to: messages.WatchActor(
+                reply_to=reply_to,
+                ref=ref,
+                parent=self.ref,
+                message=msg,
             )
         )
 
