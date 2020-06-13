@@ -1,6 +1,7 @@
 import asyncio
 import attr
 from attr.validators import instance_of, optional
+import contextlib
 import logging
 from multipledispatch import dispatch
 from typing import Optional
@@ -42,13 +43,15 @@ class ActorCell:
     )
 
     async def run(self):
-        self._timers = Timers(ref=self.context.ref, lock=asyncio.Lock())
-        self._actor = actor.Actor(
-            start=self.behaviour, context=self.context, timers=self._timers
-        )
-
         try:
-            self._task = asyncio.create_task(self._actor.run())
+            self._timers = Timers(ref=self.context.ref, lock=asyncio.Lock())
+            self._actor = actor.Actor(
+                start=self.behaviour, context=self.context, timers=self._timers
+            )
+
+            # asyncio.shield allows the task to continue after a first cancelled error
+            # this is because when the ActorCell task is cancelled it also cancels this task.
+            self._task = asyncio.shield(asyncio.create_task(self._actor.run()))
 
             while True:
                 result = await self._task
@@ -56,6 +59,8 @@ class ActorCell:
         except (asyncio.CancelledError, Stop):
             logger.debug("[%s] ActorCell stopping...", self.context.ref)
             self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
             await self._timers.cancel_all()
 
     @dispatch(actor.ActorRestarted)
@@ -66,17 +71,16 @@ class ActorCell:
         self._actor = actor.Actor(
             start=msg.behaviour, context=self.context, timers=self._timers
         )
-        self._task = asyncio.create_task(self._actor.run())
+        self._task = asyncio.shield(asyncio.create_task(self._actor.run()))
 
     @dispatch(actor.ActorKilled)
     async def handle(self, msg: actor.ActorKilled):
         logger.debug("[%s] ActorCell ActorKilled", self.context.ref)
-        # TODO: Notify parent
 
         # Notify system that actor has stopped in order to remove it
         # and its descendants from the system and notify its parent if
         # it is being watched.
-        # ActorCell.ActorKilled -> System.ActorStopped -> Dispatcher.ActorStopped -> Spawner.ActorStopped
+        # ActorCell.ActorKilled -> System.ActorStopped -> Dispatcher.RemoveActor -> Spawner.RemoveActor
         await self.context.system.tell(ActorStopped(ref=self.context.ref))
 
         raise Stop
@@ -84,13 +88,11 @@ class ActorCell:
     @dispatch(actor.ActorFailed)
     async def handle(self, msg: actor.ActorFailed):
         logger.debug("[%s] ActorCell ActorFailed", self.context.ref)
-        # TODO: Notify parent
 
         # Notify system that actor has stopped in order to remove it
         # and its children from the system and notify its parent if
         # it is being watched.
-        # ActorCell.ActorKilled -> System.ActorStopped -> Dispatcher.ActorStopped -> Spawner.ActorStopped
-        # FIXME: children stopped by the system should not need to notify the system that they were stopped.
+        # ActorCell.ActorKilled -> System.ActorStopped -> Dispatcher.RemoveActor -> Spawner.RemoveActor
         await self.context.system.tell(ActorStopped(ref=self.context.ref))
 
         raise Stop

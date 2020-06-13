@@ -75,6 +75,7 @@ class Pong:
     @staticmethod
     def start() -> Behaviour:
         async def f(ping: Ref) -> Behaviour:
+            await ping.tell("pong")
             return Pong.pong(ping)
 
         return behaviour.receive(f)
@@ -84,6 +85,7 @@ class Pong:
         async def f(message: str) -> Behaviour:
             print(message)
             await ping.tell("pong")
+            await asyncio.sleep(1)
             return behaviour.same()
 
         return behaviour.receive(f)
@@ -105,9 +107,9 @@ class PingPong:
         async def f(context):
             greeter = await context.spawn(Greeter.start("Hello"), "Greeter")
             await context.watch(greeter, PingPong.GreeterStopped())
-            ping = await context.spawn(Ping.start(), "Ping")
-            pong = await context.spawn(Pong.start(), "Pong")
-            await ping.tell(pong)
+            # ping = await context.spawn(Ping.start(), "Ping")
+            # pong = await context.spawn(Pong.start(), "Pong")
+            # await ping.tell(pong)
 
             def worker() -> Behaviour:
                 async def f(message):
@@ -123,6 +125,8 @@ class PingPong:
                 echo.ask(partial(EchoMsg, message="Meeeeeee")),
             )
             print(replies)
+
+            await context.stop(echo)
 
             return PingPong.active(context)
 

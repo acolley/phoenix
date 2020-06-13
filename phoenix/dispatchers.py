@@ -99,8 +99,8 @@ class Spawner:
             async def spawner_handle(msg: Spawner.StopActor):
                 task = actors[msg.ref]
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+                # ActorCell should not raise CancelledError
+                await task
                 await msg.reply_to.tell(Spawner.ActorStopped(ref=msg.ref))
                 return Spawner.active(system, actors.remove(msg.ref))
 

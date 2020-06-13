@@ -129,17 +129,9 @@ async def system(user: Behaviour):
                     actor_hierarchy = actor_hierarchy.discard(ref)
                     actor_dispatcher = actor_dispatcher.remove(ref)
 
-                descendants = descendants.remove(msg.ref)
                 dispatchers = [state.actor_dispatcher[ref] for ref in descendants]
-                dispatcher = state.actor_dispatcher[msg.ref]
 
                 aws = [
-                    dispatcher.ask(
-                        lambda reply_to: ThreadDispatcher.RemoveActor(
-                            reply_to=reply_to, ref=msg.ref
-                        )
-                    )
-                ] + [
                     disp.ask(
                         # TODO: shared dispatcher messages not specific to ThreadDispatcher
                         lambda reply_to, ref=ref: ThreadDispatcher.StopActor(
@@ -158,7 +150,7 @@ async def system(user: Behaviour):
 
                 # Remove all watchers
                 watchers = state.watchers
-                for ref in descendants.append(msg.ref):
+                for ref in descendants:
                     watchers = watchers.discard(ref)
 
                 # Notify watcher
