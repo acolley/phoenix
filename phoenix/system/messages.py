@@ -11,6 +11,17 @@ class Confirmation:
 
 
 @attr.s(frozen=True)
+class SpawnSystemActor:
+    """
+    Spawn a system-level actor.
+    """
+    reply_to: Ref = attr.ib(validator=instance_of(Ref))
+    id: str = attr.ib(validator=instance_of(str))
+    behaviour: Behaviour = attr.ib()
+    parent: Ref = attr.ib(validator=instance_of(Ref))
+
+
+@attr.s(frozen=True)
 class SpawnActor:
     reply_to: Ref = attr.ib(validator=instance_of(Ref))
     id: str = attr.ib(validator=instance_of(str))

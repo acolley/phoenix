@@ -15,15 +15,16 @@ import uuid
 from phoenix import behaviour
 from phoenix.actor import cell
 from phoenix.actor.actor import ActorContext
-from phoenix.actor.cell import BootstrapActorCell
+from phoenix.actor.cell import ActorCell, BootstrapActorCell
 from phoenix.behaviour import Behaviour
-from phoenix.dispatchers import ThreadDispatcher
+from phoenix.dispatchers.thread import ThreadDispatcher
 from phoenix.ref import Ref
 from phoenix.system.messages import (
     ActorSpawned,
     ActorStopped,
     Confirmation,
     SpawnActor,
+    SpawnSystemActor,
     StopActor,
     WatchActor,
 )
@@ -39,6 +40,7 @@ class Watcher:
 
 @attr.s
 class SystemState:
+    context: ActorContext = attr.ib(validator=instance_of(ActorContext))
     dispatchers: Mapping[str, Ref] = attr.ib(
         validator=deep_mapping(
             key_validator=instance_of(str), value_validator=instance_of(Ref)
@@ -84,6 +86,43 @@ async def system(user: Behaviour):
 
     def active(state: SystemState) -> Behaviour:
         async def f(msg):
+            @dispatch(SpawnSystemActor)
+            async def system_handle(msg: SpawnSystemActor):
+                # Spawn system actors into the system thread.
+                if msg.parent not in state.actor_hierarchy:
+                    raise ValueError(f"Parent actor `{msg.parent}` does not exist.")
+
+                ref = Ref(id=msg.id, inbox=janus.Queue())
+                cell = ActorCell(
+                    behaviour=msg.behaviour,
+                    context=ActorContext(
+                        ref=ref,
+                        parent=msg.parent,
+                        thread=threading.current_thread(),
+                        loop=asyncio.get_event_loop(),
+                        system=state.context.ref,
+                    ),
+                )
+
+                asyncio.create_task(cell.run())
+                await msg.reply_to.tell(ActorSpawned(ref=ref))
+
+                actor_hierarchy = state.actor_hierarchy.set(ref, v())
+                children = state.actor_hierarchy[msg.parent]
+                actor_hierarchy = actor_hierarchy.set(
+                    msg.parent, children.append(ref)
+                )
+                return active(
+                    attr.evolve(
+                        state,
+                        # TODO: a system dispatcher?
+                        # actor_dispatcher=state.actor_dispatcher.set(
+                        #     ref, dispatcher
+                        # ),
+                        actor_hierarchy=actor_hierarchy,
+                    )
+                )
+
             @dispatch(SpawnActor)
             async def system_handle(msg: SpawnActor):
                 dispatcher = state.dispatchers[msg.dispatcher or "default"]
@@ -254,6 +293,7 @@ async def system(user: Behaviour):
         async def f(context: ActorContext):
             return active(
                 SystemState(
+                    context=context,
                     dispatchers=m(default=default_dispatcher),
                     actor_dispatcher=m(),
                     actor_hierarchy=m().set(root, v()),

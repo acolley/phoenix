@@ -68,7 +68,7 @@ class Ping:
         async def f(message: str) -> Behaviour:
             print(message)
             await pong.tell("ping")
-            asyncio.sleep(1)
+            await asyncio.sleep(1)
             return behaviour.same()
 
         return behaviour.receive(f)
@@ -146,5 +146,5 @@ class PingPong:
 
 
 def main():
-    logging.basicConfig(level=logging.DEBUG)
+    # logging.basicConfig(level=logging.DEBUG)
     asyncio.run(system(PingPong.start()), debug=True)
