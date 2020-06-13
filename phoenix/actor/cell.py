@@ -77,9 +77,7 @@ class ActorCell:
         # and its descendants from the system and notify its parent if
         # it is being watched.
         # ActorCell.ActorKilled -> System.ActorStopped -> Dispatcher.ActorStopped -> Spawner.ActorStopped
-        await self.context.system.tell(
-            ActorStopped(ref=self.context.ref)
-        )
+        await self.context.system.tell(ActorStopped(ref=self.context.ref))
 
         raise Stop
 
@@ -93,9 +91,7 @@ class ActorCell:
         # it is being watched.
         # ActorCell.ActorKilled -> System.ActorStopped -> Dispatcher.ActorStopped -> Spawner.ActorStopped
         # FIXME: children stopped by the system should not need to notify the system that they were stopped.
-        await self.context.system.tell(
-            ActorStopped(ref=self.context.ref)
-        )
+        await self.context.system.tell(ActorStopped(ref=self.context.ref))
 
         raise Stop
 

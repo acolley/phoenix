@@ -42,6 +42,7 @@ class WatchActor:
     to receive a notification message when the watched (the child)
     is stopped.
     """
+
     reply_to: Ref = attr.ib(validator=instance_of(Ref))
     ref: Ref = attr.ib(validator=instance_of(Ref))
     parent: Ref = attr.ib(validator=instance_of(Ref))

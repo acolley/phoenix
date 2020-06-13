@@ -44,7 +44,11 @@ class SystemState:
             key_validator=instance_of(str), value_validator=instance_of(Ref)
         )
     )
-    watchers: Mapping[Ref, Watcher] = attr.ib(validator=deep_mapping(key_validator=instance_of(Ref), value_validator=instance_of(Watcher)))
+    watchers: Mapping[Ref, Watcher] = attr.ib(
+        validator=deep_mapping(
+            key_validator=instance_of(Ref), value_validator=instance_of(Watcher)
+        )
+    )
     """
     Mapping from watched to watcher (i.e. child to parent).
     """
@@ -97,7 +101,9 @@ async def system(user: Behaviour):
 
                 actor_hierarchy = state.actor_hierarchy.set(response.ref, v())
                 children = state.actor_hierarchy[msg.parent]
-                actor_hierarchy = actor_hierarchy.set(msg.parent, children.append(response.ref))
+                actor_hierarchy = actor_hierarchy.set(
+                    msg.parent, children.append(response.ref)
+                )
                 return active(
                     attr.evolve(
                         state,
@@ -220,7 +226,7 @@ async def system(user: Behaviour):
                     watchers = watchers.discard(ref)
 
                 # Notify watcher
-                # We do not notify all child watchers as those 
+                # We do not notify all child watchers as those
                 # can only be their already-killed parents.
                 if watcher:
                     await watcher.ref.tell(watcher.msg)
@@ -235,14 +241,16 @@ async def system(user: Behaviour):
                         watchers=watchers,
                     )
                 )
-            
+
             @dispatch(WatchActor)
             async def system_handle(msg: WatchActor):
                 await msg.reply_to.tell(Confirmation())
                 return active(
                     attr.evolve(
                         state,
-                        watchers=state.watchers.set(msg.ref, Watcher(ref=msg.parent, msg=msg.message)),
+                        watchers=state.watchers.set(
+                            msg.ref, Watcher(ref=msg.parent, msg=msg.message)
+                        ),
                     )
                 )
 

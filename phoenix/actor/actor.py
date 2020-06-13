@@ -85,12 +85,9 @@ class ActorContext:
         except KeyError:
             raise ValueError(f"Must be a child of this actor: `{ref}`")
         await self.system.ask(
-            lambda reply_to: messages.StopActor(
-                reply_to=reply_to,
-                ref=ref,
-            )
+            lambda reply_to: messages.StopActor(reply_to=reply_to, ref=ref,)
         )
-    
+
     async def watch(self, ref: Ref, msg: Any):
         # Watch a child actor
         if ref not in self.children:
@@ -98,10 +95,7 @@ class ActorContext:
 
         await self.system.ask(
             lambda reply_to: messages.WatchActor(
-                reply_to=reply_to,
-                ref=ref,
-                parent=self.ref,
-                message=msg,
+                reply_to=reply_to, ref=ref, parent=self.ref, message=msg,
             )
         )
 

@@ -57,12 +57,12 @@ class Spawner:
     @attr.s
     class ActorStopped:
         ref: Ref = attr.ib(validator=instance_of(Ref))
-    
+
     @attr.s
     class RemoveActor:
         reply_to: Ref = attr.ib(validator=instance_of(Ref))
         ref: Ref = attr.ib(validator=instance_of(Ref))
-    
+
     @attr.s
     class ActorRemoved:
         ref: Ref = attr.ib(validator=instance_of(Ref))
@@ -177,7 +177,7 @@ class ThreadDispatcher:
     @attr.s
     class ActorStopped:
         ref: Ref = attr.ib(validator=instance_of(Ref))
-    
+
     @attr.s
     class RemoveActor:
         """
@@ -185,9 +185,10 @@ class ThreadDispatcher:
 
         This will fail if the Actor is still running.
         """
+
         reply_to: Ref = attr.ib(validator=instance_of(Ref))
         ref: Ref = attr.ib(validator=instance_of(Ref))
-    
+
     @attr.s
     class ActorRemoved:
         ref: Ref = attr.ib(validator=instance_of(Ref))
@@ -275,9 +276,7 @@ class ThreadDispatcher:
         @dispatch(ThreadDispatcher.RemoveActor)
         async def thread_dispatcher_handle(msg: ThreadDispatcher.RemoveActor):
             await spawner.ask(
-                lambda reply_to: Spawner.RemoveActor(
-                    reply_to=reply_to, ref=msg.ref
-                )
+                lambda reply_to: Spawner.RemoveActor(reply_to=reply_to, ref=msg.ref)
             )
             await msg.reply_to.tell(ThreadDispatcher.ActorRemoved(ref=msg.ref))
 

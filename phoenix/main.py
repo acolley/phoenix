@@ -127,13 +127,14 @@ class PingPong:
             return PingPong.active(context)
 
         return behaviour.restart(behaviour.setup(f))
-    
+
     @staticmethod
     def active(context) -> Behaviour:
         async def f(msg):
             logging.info("Creating a new greeter")
             await context.spawn(Greeter.start("Hello 2"), "Greeter")
             return behaviour.same()
+
         return behaviour.receive(f)
 
 
