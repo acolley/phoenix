@@ -30,7 +30,9 @@ class Timers:
             if name in self._timers:
                 raise ValueError(f"Timer `{name}` already exists.")
 
-            self._timers = self._timers.set(name, asyncio.create_task(_fixed_delay_timer()))
+            self._timers = self._timers.set(
+                name, asyncio.create_task(_fixed_delay_timer())
+            )
 
     async def start_single_shot_timer(
         self, message: Any, delay: timedelta, name: Optional[str] = None
@@ -46,7 +48,9 @@ class Timers:
             if name in self._timers:
                 raise ValueError(f"Timer `{name}` already exists.")
 
-            self._timers = self._timers.set(name, asyncio.create_task(_single_shot_timer()))
+            self._timers = self._timers.set(
+                name, asyncio.create_task(_single_shot_timer())
+            )
 
     async def cancel(self, name: str):
         async with self.lock:

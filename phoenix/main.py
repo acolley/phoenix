@@ -32,7 +32,9 @@ class Greeter:
             await timers.start_fixed_delay_timer(Greeter.Timeout, timedelta(seconds=1))
             return Greeter.active(greeting, count)
 
-        return behaviour.restart(behaviour.schedule(f))
+        return behaviour.restart(behaviour.schedule(f)).with_backoff(
+            lambda n: min(2 ** n, 10)
+        )
 
     @staticmethod
     def active(greeting: str, count: int) -> Behaviour:
@@ -66,6 +68,7 @@ class Ping:
         async def f(message: str) -> Behaviour:
             print(message)
             await pong.tell("ping")
+            asyncio.sleep(1)
             return behaviour.same()
 
         return behaviour.receive(f)
@@ -107,9 +110,9 @@ class PingPong:
         async def f(context):
             greeter = await context.spawn(Greeter.start("Hello"), "Greeter")
             await context.watch(greeter, PingPong.GreeterStopped())
-            # ping = await context.spawn(Ping.start(), "Ping")
-            # pong = await context.spawn(Pong.start(), "Pong")
-            # await ping.tell(pong)
+            ping = await context.spawn(Ping.start(), "Ping")
+            pong = await context.spawn(Pong.start(), "Pong")
+            await ping.tell(pong)
 
             def worker() -> Behaviour:
                 async def f(message):
