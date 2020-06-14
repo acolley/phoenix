@@ -115,7 +115,7 @@ class Actor:
             # TODO: Allow the actor to perform cleanup.
             return ActorKilled(ref=self.context.ref)
         except Exception as e:
-            logger.debug(
+            logger.warning(
                 "[%s] Behaviour raised unhandled exception",
                 self.context.ref,
                 exc_info=True,

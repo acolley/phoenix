@@ -34,7 +34,11 @@ class ThreadExecutor(threading.Thread):
             executor = ActorCell(
                 behaviour=Executor.start(),
                 context=ActorContext(
-                    ref=Ref(id=f"executor-{uuid.uuid1()}", inbox=janus.Queue()),
+                    ref=Ref(
+                        id=f"{self.dispatcher.id}-executor",
+                        inbox=janus.Queue(),
+                        thread=threading.current_thread(),
+                    ),
                     parent=self.dispatcher,
                     thread=threading.current_thread(),
                     loop=asyncio.get_event_loop(),
@@ -44,9 +48,7 @@ class ThreadExecutor(threading.Thread):
 
             task = asyncio.create_task(executor.run())
 
-            await self.dispatcher.tell(
-                ExecutorCreated(ref=executor.context.ref)
-            )
+            await self.dispatcher.tell(ExecutorCreated(ref=executor.context.ref))
 
             await task
 

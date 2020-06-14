@@ -15,6 +15,7 @@ class SpawnSystemActor:
     """
     Spawn a system-level actor.
     """
+
     reply_to: Ref = attr.ib(validator=instance_of(Ref))
     id: str = attr.ib(validator=instance_of(str))
     behaviour: Behaviour = attr.ib()

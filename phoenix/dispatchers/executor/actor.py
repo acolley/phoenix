@@ -50,17 +50,21 @@ class Executor:
     @staticmethod
     def start() -> Behaviour:
         async def f(context: ActorContext):
-            return Executor.active(context.system, m())
+            return Executor.active(context, m())
 
         return behaviour.setup(f)
 
     @staticmethod
-    def active(system: Ref, actors) -> Behaviour:
+    def active(context, actors) -> Behaviour:
+        print(f"[{context.ref}] {actors.keys()}")
+
         async def f(msg):
             # NOTE: function name of multipledispatch.dispatch target must be unique for the same type.
             @dispatch(Executor.SpawnActor)
             async def spawner_handle(msg: Executor.SpawnActor):
-                ref = Ref(id=msg.id, inbox=janus.Queue())
+                ref = Ref(
+                    id=msg.id, inbox=janus.Queue(), thread=threading.current_thread()
+                )
                 cell = ActorCell(
                     behaviour=msg.behaviour,
                     context=ActorContext(
@@ -68,21 +72,22 @@ class Executor:
                         parent=msg.parent,
                         thread=threading.current_thread(),
                         loop=asyncio.get_event_loop(),
-                        system=system,
+                        system=context.system,
                     ),
                 )
                 task = asyncio.create_task(cell.run())
                 await msg.reply_to.tell(Executor.ActorSpawned(ref=ref))
-                return Executor.active(system, actors.set(ref, task))
+                return Executor.active(context, actors.set(ref, task))
 
             @dispatch(Executor.StopActor)
             async def spawner_handle(msg: Executor.StopActor):
+                print(f"[{context.ref}] {actors.keys()}")
                 task = actors[msg.ref]
                 task.cancel()
                 # ActorCell should not raise CancelledError
                 await task
                 await msg.reply_to.tell(Executor.ActorStopped(ref=msg.ref))
-                return Executor.active(system, actors.remove(msg.ref))
+                return Executor.active(context, actors.remove(msg.ref))
 
             @dispatch(Executor.RemoveActor)
             async def spawner_handle(msg: Executor.RemoveActor):
@@ -90,7 +95,7 @@ class Executor:
                 # Task is finished or finishing so we wait for it...
                 await task
                 await msg.reply_to.tell(Executor.ActorRemoved(msg.ref))
-                return Executor.active(system, actors.remove(msg.ref))
+                return Executor.active(context, actors.remove(msg.ref))
 
             return await spawner_handle(msg)
 

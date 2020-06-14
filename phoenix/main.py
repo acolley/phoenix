@@ -29,7 +29,7 @@ class Greeter:
     @staticmethod
     def init(greeting: str, count: int) -> Behaviour:
         async def f(timers):
-            await timers.start_fixed_rate_timer(Greeter.Timeout, timedelta(seconds=1))
+            await timers.start_fixed_rate_timer(Greeter.Timeout(), timedelta(seconds=1))
             return Greeter.active(greeting, count)
 
         return behaviour.restart(behaviour.schedule(f)).with_backoff(
@@ -121,7 +121,7 @@ class PingPong:
 
                 return behaviour.receive(f)
 
-            router = routers.pool(5)(worker())
+            router = routers.pool(1)(worker())
             echo = await context.spawn(router, "Router")
             replies = await asyncio.gather(
                 echo.ask(partial(EchoMsg, message="Echooooo")),
@@ -146,5 +146,5 @@ class PingPong:
 
 
 def main():
-    # logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.WARNING)
     asyncio.run(system(PingPong.start()), debug=True)

@@ -20,14 +20,10 @@ class Ref:
     # public interface.
     id: str = attr.ib(validator=instance_of(str))
     inbox: janus.Queue = attr.ib(validator=instance_of(janus.Queue))
-    _thread: threading.Thread = attr.ib(
-        init=False,
-        validator=instance_of(threading.Thread),
-        default=threading.current_thread(),
-    )
+    thread: threading.Thread = attr.ib(validator=instance_of(threading.Thread),)
 
     async def tell(self, message: Any):
-        if threading.current_thread() is not self._thread:
+        if threading.current_thread() is not self.thread:
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda: self.inbox.sync_q.put(message)
             )
@@ -40,12 +36,14 @@ class Ref:
         """
         """
         # Create a fake actor ref for the destination to reply to.
-        ref = Ref(id=str(uuid.uuid1()), inbox=janus.Queue())
-        msg = f(ref)
+        reply_to = Ref(
+            id=str(uuid.uuid1()), inbox=janus.Queue(), thread=threading.current_thread()
+        )
+        msg = f(reply_to)
 
         async def interact() -> Any:
             await self.tell(msg)
-            return await ref.inbox.async_q.get()
+            return await reply_to.inbox.async_q.get()
 
         return await asyncio.wait_for(interact(), timeout=timeout)
 

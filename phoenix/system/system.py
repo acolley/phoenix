@@ -109,9 +109,7 @@ async def system(user: Behaviour):
 
                 actor_hierarchy = state.actor_hierarchy.set(ref, v())
                 children = state.actor_hierarchy[msg.parent]
-                actor_hierarchy = actor_hierarchy.set(
-                    msg.parent, children.append(ref)
-                )
+                actor_hierarchy = actor_hierarchy.set(msg.parent, children.append(ref))
                 return active(
                     attr.evolve(
                         state,
@@ -303,9 +301,13 @@ async def system(user: Behaviour):
 
         return behaviour.setup(f)
 
-    root_ref = Ref(id="root", inbox=janus.Queue())
-    system_ref = Ref(id="system", inbox=janus.Queue())
-    default_dispatcher_ref = Ref(id="dispatcher-default", inbox=janus.Queue())
+    root_ref = Ref(id="root", inbox=janus.Queue(), thread=threading.current_thread())
+    system_ref = Ref(
+        id="system", inbox=janus.Queue(), thread=threading.current_thread()
+    )
+    default_dispatcher_ref = Ref(
+        id="dispatcher-default", inbox=janus.Queue(), thread=threading.current_thread()
+    )
 
     # FIXME: What happens when the application is asked to shut down?
     # FIXME: How do these bootstrapped actors stop gracefully?
@@ -322,6 +324,7 @@ async def system(user: Behaviour):
     )
 
     default_dispatcher_cell = BootstrapActorCell(
+        # FIXME: fails with `KeyError: Ref(id='Router')` for six or more threads.
         behaviour=ThreadDispatcher.start(2),
         context=ActorContext(
             ref=default_dispatcher_ref,

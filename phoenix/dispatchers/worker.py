@@ -55,12 +55,14 @@ class DispatcherWorker:
             thread = ThreadExecutor(dispatcher=context.ref, system=context.system)
             thread.daemon = True
             thread.start()
-            return DispatcherWorker.waiting(thread=thread, requests=v())
+            return DispatcherWorker.waiting(
+                context=context, thread=thread, requests=v()
+            )
 
         return behaviour.setup(f)
 
     @staticmethod
-    def waiting(thread: ThreadExecutor, requests) -> Behaviour:
+    def waiting(context, thread: ThreadExecutor, requests) -> Behaviour:
         async def f(message):
             if isinstance(message, ExecutorCreated):
                 # now the executor is ready, process all requests that were waiting
@@ -98,19 +100,22 @@ class DispatcherWorker:
 
                 aws = [_handle(request) for request in requests]
                 await asyncio.gather(*aws)
-                return DispatcherWorker.active(thread=thread, executor=message.ref)
+                return DispatcherWorker.active(
+                    context=context, thread=thread, executor=message.ref
+                )
             else:
                 # executor is not ready yet, so queue up the request
                 return DispatcherWorker.waiting(
-                    thread=thread, requests=requests.append(message)
+                    context=context, thread=thread, requests=requests.append(message)
                 )
 
         return behaviour.receive(f)
 
     @staticmethod
-    def active(thread: ThreadExecutor, executor: Ref) -> Behaviour:
+    def active(context, thread: ThreadExecutor, executor: Ref) -> Behaviour:
         @dispatch(DispatcherWorker.SpawnActor)
         async def worker_dispatcher_handle(msg: DispatcherWorker.SpawnActor):
+            print(f"[{context.ref}] [{msg}] executor={executor}")
             reply = await executor.ask(
                 lambda reply_to: Executor.SpawnActor(
                     reply_to=reply_to,
@@ -123,6 +128,9 @@ class DispatcherWorker:
 
         @dispatch(DispatcherWorker.StopActor)
         async def worker_dispatcher_handle(msg: DispatcherWorker.StopActor):
+            print(
+                f"[{context.ref}] [{msg}] executor={executor} inbox={context.ref.inbox}"
+            )
             await executor.ask(
                 lambda reply_to: Executor.StopActor(reply_to=reply_to, ref=msg.ref)
             )

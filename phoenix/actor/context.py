@@ -42,6 +42,16 @@ class ActorContext:
 
     children: List[Ref] = attr.ib(default=v())
 
+    @thread.validator
+    def check(self, attribute: str, value: threading.Thread):
+        if value is not self.ref.thread:
+            raise ValueError("thread must be the same as ref.thread")
+
+    @ref.validator
+    def check(self, attribute: str, value: Ref):
+        if value.thread is not self.thread:
+            raise ValueError("ref.thread must be the same as thread")
+
     async def spawn(
         self,
         behaviour: Behaviour,

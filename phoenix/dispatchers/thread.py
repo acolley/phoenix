@@ -3,7 +3,7 @@ import attr
 from attr.validators import deep_iterable, deep_mapping, instance_of
 import janus
 from multipledispatch import dispatch
-from pyrsistent import m, v
+from pyrsistent import m, PVector, v
 import threading
 from typing import Iterable, Mapping
 
@@ -29,7 +29,10 @@ class State:
     max_threads: int = attr.ib(validator=instance_of(int))
     context: ActorContext = attr.ib(validator=instance_of(ActorContext))
     dispatchers: Iterable[Dispatcher] = attr.ib(
-        validator=deep_iterable(member_validator=instance_of(Dispatcher))
+        validator=deep_iterable(
+            member_validator=instance_of(Dispatcher),
+            iterable_validator=instance_of(PVector),
+        )
     )
     actor_dispatcher: Mapping[Ref, Ref] = attr.ib(
         validator=deep_mapping(
@@ -42,6 +45,24 @@ class State:
     def check(self, attribute: str, value: int):
         if value < 1:
             raise ValueError("max_threads must be greater than zero")
+
+    @dispatchers.validator
+    def check(self, attribute: str, value: Iterable[Dispatcher]):
+        for dispatcher in value:
+            if dispatcher.ref not in self.actor_dispatcher.values():
+                raise ValueError(
+                    f"Dispatcher `{dispatcher.ref}` must be in actor_dispatcher mapping."
+                )
+
+        if len(value) > self.max_threads:
+            raise ValueError("Length of dispatchers cannot be greater than max_threads")
+
+    @index.validator
+    def check(self, attribute: str, value: int):
+        if value < 0:
+            raise ValueError("index cannot be less than zero.")
+        if value > len(self.dispatchers):
+            raise ValueError("index cannot be greater than length of dispatchers.")
 
 
 # TODO: restart threads and their actors if failure occurs.
@@ -103,13 +124,19 @@ class ThreadDispatcher:
 
     @staticmethod
     def active(state: State) -> Behaviour:
+        print(f"[{state.context.ref}] [{state.index}] {state.actor_dispatcher}")
+
         @dispatch(ThreadDispatcher.SpawnActor)
         async def thread_dispatcher_handle(msg: ThreadDispatcher.SpawnActor):
             nonlocal state
             try:
                 dispatcher = state.dispatchers[state.index]
             except IndexError:
-                ref = Ref(id=f"{state.context.ref.id}-{state.index}", inbox=janus.Queue())
+                ref = Ref(
+                    id=f"{state.context.ref.id}-{state.index}",
+                    inbox=janus.Queue(),
+                    thread=threading.current_thread(),
+                )
                 cell = BootstrapActorCell(
                     behaviour=DispatcherWorker.start(),
                     context=ActorContext(
@@ -122,9 +149,11 @@ class ThreadDispatcher:
                 )
                 task = asyncio.create_task(cell.run())
                 dispatcher = Dispatcher(ref=ref, task=task)
-                state = attr.evolve(
-                    state, dispatchers=state.dispatchers.append(dispatcher)
-                )
+                dispatchers = state.dispatchers.append(dispatcher)
+            else:
+                dispatchers = state.dispatchers
+
+            print(f"[{state.context.ref}] [SpawnActor] {dispatcher.ref}")
 
             reply = await dispatcher.ref.ask(
                 lambda reply_to: DispatcherWorker.SpawnActor(
@@ -137,6 +166,7 @@ class ThreadDispatcher:
 
             state = attr.evolve(
                 state,
+                dispatchers=dispatchers,
                 actor_dispatcher=state.actor_dispatcher.set(reply.ref, dispatcher.ref),
                 index=(state.index + 1) % state.max_threads,
             )
@@ -149,8 +179,15 @@ class ThreadDispatcher:
         async def thread_dispatcher_handle(msg: ThreadDispatcher.StopActor):
             nonlocal state
 
+            print(f"[{state.context.ref}] [{msg}] {state.actor_dispatcher}")
+
             dispatcher = state.actor_dispatcher[msg.ref]
 
+            print(
+                f"[{state.context.ref}] [{msg}] dispatcher={dispatcher} {dispatcher.inbox}"
+            )
+
+            # FIXME: sends message to wrong dispatcher
             await dispatcher.ask(
                 lambda reply_to: DispatcherWorker.StopActor(
                     reply_to=reply_to, ref=msg.ref
