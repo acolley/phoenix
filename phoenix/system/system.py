@@ -17,6 +17,8 @@ from phoenix.actor import cell
 from phoenix.actor.actor import ActorContext
 from phoenix.actor.cell import ActorCell, BootstrapActorCell
 from phoenix.behaviour import Behaviour
+from phoenix.dispatchers import dispatcher as dispatchermsg
+from phoenix.dispatchers.coro import CoroDispatcher
 from phoenix.dispatchers.thread import ThreadDispatcher
 from phoenix.ref import Ref
 from phoenix.system.messages import (
@@ -71,7 +73,7 @@ class SystemState:
 # For example for testing:
 # * User creates a system with the Actor under test.
 # * Send messages to system to observe behaviour.
-async def system(user: Behaviour):
+async def system(user: Behaviour, default_dispatcher: Callable[[], Behaviour] = CoroDispatcher.start):
     """
     System actor manages spawning and stopping actors.
 
@@ -86,40 +88,6 @@ async def system(user: Behaviour):
 
     def active(state: SystemState) -> Behaviour:
         async def f(msg):
-            @dispatch(SpawnSystemActor)
-            async def system_handle(msg: SpawnSystemActor):
-                # Spawn system actors into the system thread.
-                if msg.parent not in state.actor_hierarchy:
-                    raise ValueError(f"Parent actor `{msg.parent}` does not exist.")
-
-                ref = Ref(id=msg.id, inbox=janus.Queue())
-                cell = ActorCell(
-                    behaviour=msg.behaviour,
-                    context=ActorContext(
-                        ref=ref,
-                        parent=msg.parent,
-                        thread=threading.current_thread(),
-                        loop=asyncio.get_event_loop(),
-                        system=state.context.ref,
-                    ),
-                )
-
-                asyncio.create_task(cell.run())
-                await msg.reply_to.tell(ActorSpawned(ref=ref))
-
-                actor_hierarchy = state.actor_hierarchy.set(ref, v())
-                children = state.actor_hierarchy[msg.parent]
-                actor_hierarchy = actor_hierarchy.set(msg.parent, children.append(ref))
-                return active(
-                    attr.evolve(
-                        state,
-                        # TODO: a system dispatcher?
-                        # actor_dispatcher=state.actor_dispatcher.set(
-                        #     ref, dispatcher
-                        # ),
-                        actor_hierarchy=actor_hierarchy,
-                    )
-                )
 
             @dispatch(SpawnActor)
             async def system_handle(msg: SpawnActor):
@@ -127,7 +95,7 @@ async def system(user: Behaviour):
                 if msg.parent not in state.actor_hierarchy:
                     raise ValueError(f"Parent actor `{msg.parent}` does not exist.")
                 response = await dispatcher.ask(
-                    lambda reply_to: ThreadDispatcher.SpawnActor(
+                    lambda reply_to: dispatchermsg.SpawnActor(
                         reply_to=reply_to,
                         id=msg.id,
                         behaviour=msg.behaviour,
@@ -170,8 +138,7 @@ async def system(user: Behaviour):
 
                 aws = [
                     disp.ask(
-                        # TODO: shared dispatcher messages not specific to ThreadDispatcher
-                        lambda reply_to, ref=ref: ThreadDispatcher.StopActor(
+                        lambda reply_to, ref=ref: dispatchermsg.StopActor(
                             reply_to=reply_to, ref=ref
                         )
                     )
@@ -228,14 +195,13 @@ async def system(user: Behaviour):
 
                 aws = [
                     dispatcher.ask(
-                        lambda reply_to: ThreadDispatcher.RemoveActor(
+                        lambda reply_to: dispatchermsg.RemoveActor(
                             reply_to=reply_to, ref=msg.ref
                         )
                     )
                 ] + [
                     disp.ask(
-                        # TODO: shared dispatcher messages not specific to ThreadDispatcher
-                        lambda reply_to, ref=ref: ThreadDispatcher.StopActor(
+                        lambda reply_to, ref=ref: dispatchermsg.StopActor(
                             reply_to=reply_to, ref=ref
                         )
                     )
@@ -324,8 +290,7 @@ async def system(user: Behaviour):
     )
 
     default_dispatcher_cell = BootstrapActorCell(
-        # FIXME: fails with `KeyError: Ref(id='Router')` for six or more threads.
-        behaviour=ThreadDispatcher.start(2),
+        behaviour=default_dispatcher(),
         context=ActorContext(
             ref=default_dispatcher_ref,
             parent=system_ref,

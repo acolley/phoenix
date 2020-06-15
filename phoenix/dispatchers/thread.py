@@ -11,6 +11,14 @@ from phoenix import behaviour
 from phoenix.actor.actor import ActorContext
 from phoenix.actor.cell import BootstrapActorCell
 from phoenix.behaviour import Behaviour
+from phoenix.dispatchers.dispatcher import (
+    ActorRemoved,
+    ActorSpawned,
+    ActorStopped,
+    RemoveActor,
+    SpawnActor,
+    StopActor,
+)
 from phoenix.dispatchers.executor.actor import Executor
 from phoenix.dispatchers.executor.thread import ThreadExecutor
 from phoenix.dispatchers.worker import DispatcherWorker
@@ -72,41 +80,6 @@ class ThreadDispatcher:
     An Actor that dispatches actors to a pool of threads.
     """
 
-    @attr.s
-    class SpawnActor:
-        reply_to: Ref = attr.ib(validator=instance_of(Ref))
-        id: str = attr.ib(validator=instance_of(str))
-        behaviour: Behaviour = attr.ib()
-        parent: Ref = attr.ib(validator=instance_of(Ref))
-
-    @attr.s
-    class ActorSpawned:
-        ref: Ref = attr.ib(validator=instance_of(Ref))
-
-    @attr.s
-    class StopActor:
-        reply_to: Ref = attr.ib(validator=instance_of(Ref))
-        ref: Ref = attr.ib(validator=instance_of(Ref))
-
-    @attr.s
-    class ActorStopped:
-        ref: Ref = attr.ib(validator=instance_of(Ref))
-
-    @attr.s
-    class RemoveActor:
-        """
-        Remove an Actor that has already been killed.
-
-        This will fail if the Actor is still running.
-        """
-
-        reply_to: Ref = attr.ib(validator=instance_of(Ref))
-        ref: Ref = attr.ib(validator=instance_of(Ref))
-
-    @attr.s
-    class ActorRemoved:
-        ref: Ref = attr.ib(validator=instance_of(Ref))
-
     @staticmethod
     def start(max_threads: int) -> Behaviour:
         async def f(context: ActorContext):
@@ -126,8 +99,8 @@ class ThreadDispatcher:
     def active(state: State) -> Behaviour:
         print(f"[{state.context.ref}] [{state.index}] {state.actor_dispatcher}")
 
-        @dispatch(ThreadDispatcher.SpawnActor)
-        async def thread_dispatcher_handle(msg: ThreadDispatcher.SpawnActor):
+        @dispatch(SpawnActor)
+        async def thread_dispatcher_handle(msg: SpawnActor):
             nonlocal state
             try:
                 dispatcher = state.dispatchers[state.index]
@@ -171,12 +144,12 @@ class ThreadDispatcher:
                 index=(state.index + 1) % state.max_threads,
             )
 
-            await msg.reply_to.tell(ThreadDispatcher.ActorSpawned(ref=reply.ref))
+            await msg.reply_to.tell(ActorSpawned(ref=reply.ref))
 
             return ThreadDispatcher.active(state)
 
-        @dispatch(ThreadDispatcher.StopActor)
-        async def thread_dispatcher_handle(msg: ThreadDispatcher.StopActor):
+        @dispatch(StopActor)
+        async def thread_dispatcher_handle(msg: StopActor):
             nonlocal state
 
             print(f"[{state.context.ref}] [{msg}] {state.actor_dispatcher}")
@@ -198,12 +171,12 @@ class ThreadDispatcher:
                 state, actor_dispatcher=state.actor_dispatcher.remove(msg.ref)
             )
 
-            await msg.reply_to.tell(ThreadDispatcher.ActorStopped(ref=msg.ref))
+            await msg.reply_to.tell(ActorStopped(ref=msg.ref))
 
             return ThreadDispatcher.active(state)
 
-        @dispatch(ThreadDispatcher.RemoveActor)
-        async def thread_dispatcher_handle(msg: ThreadDispatcher.RemoveActor):
+        @dispatch(RemoveActor)
+        async def thread_dispatcher_handle(msg: RemoveActor):
             nonlocal state
 
             dispatcher = state.actor_dispatcher[msg.ref]
@@ -218,7 +191,7 @@ class ThreadDispatcher:
                 state, actor_dispatcher=state.actor_dispatcher.remove(msg.ref)
             )
 
-            await msg.reply_to.tell(ThreadDispatcher.ActorRemoved(ref=msg.ref))
+            await msg.reply_to.tell(ActorRemoved(ref=msg.ref))
 
             return ThreadDispatcher.active(state)
 
