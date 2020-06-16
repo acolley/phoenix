@@ -7,6 +7,8 @@ import janus
 import logging
 from multipledispatch import dispatch
 from pyrsistent import m, v
+from sqlalchemy import create_engine
+from sqlalchemy_aio import ASYNCIO_STRATEGY
 import threading
 import traceback
 from typing import Any, Callable, Generic, Iterable, List, Mapping, Optional, TypeVar
@@ -20,7 +22,10 @@ from phoenix.behaviour import Behaviour
 from phoenix.dispatchers import dispatcher as dispatchermsg
 from phoenix.dispatchers.coro import CoroDispatcher
 from phoenix.dispatchers.thread import ThreadDispatcher
+from phoenix.persistence import persister
+from phoenix.persistence.store import SqlAlchemyStore
 from phoenix.ref import Ref
+from phoenix import registry
 from phoenix.system.messages import (
     ActorSpawned,
     ActorStopped,
@@ -73,7 +78,9 @@ class SystemState:
 # For example for testing:
 # * User creates a system with the Actor under test.
 # * Send messages to system to observe behaviour.
-async def system(user: Behaviour, default_dispatcher: Callable[[], Behaviour] = CoroDispatcher.start):
+async def system(
+    user: Behaviour, default_dispatcher: Callable[[], Behaviour] = CoroDispatcher.start
+):
     """
     System actor manages spawning and stopping actors.
 
@@ -88,7 +95,6 @@ async def system(user: Behaviour, default_dispatcher: Callable[[], Behaviour] = 
 
     def active(state: SystemState) -> Behaviour:
         async def f(msg):
-
             @dispatch(SpawnActor)
             async def system_handle(msg: SpawnActor):
                 dispatcher = state.dispatchers[msg.dispatcher or "default"]
@@ -274,6 +280,12 @@ async def system(user: Behaviour, default_dispatcher: Callable[[], Behaviour] = 
     default_dispatcher_ref = Ref(
         id="dispatcher-default", inbox=janus.Queue(), thread=threading.current_thread()
     )
+    registry_ref = Ref(
+        id="registry", inbox=janus.Queue(), thread=threading.current_thread()
+    )
+    persister_ref = Ref(
+        id="persister", inbox=janus.Queue(), thread=threading.current_thread()
+    )
 
     # FIXME: What happens when the application is asked to shut down?
     # FIXME: How do these bootstrapped actors stop gracefully?
@@ -286,6 +298,7 @@ async def system(user: Behaviour, default_dispatcher: Callable[[], Behaviour] = 
             thread=threading.current_thread(),
             loop=asyncio.get_event_loop(),
             system=system_ref,
+            registry=registry_ref,
         ),
     )
 
@@ -297,6 +310,7 @@ async def system(user: Behaviour, default_dispatcher: Callable[[], Behaviour] = 
             thread=threading.current_thread(),
             loop=asyncio.get_event_loop(),
             system=system_ref,
+            registry=registry_ref,
         ),
     )
     system_cell = BootstrapActorCell(
@@ -307,12 +321,38 @@ async def system(user: Behaviour, default_dispatcher: Callable[[], Behaviour] = 
             thread=threading.current_thread(),
             loop=asyncio.get_event_loop(),
             system=system_ref,  # self-reference
+            registry=registry_ref,
+        ),
+    )
+    registry_cell = BootstrapActorCell(
+        behaviour=registry.Registry.start(),
+        context=ActorContext(
+            ref=registry_ref,
+            parent=system_ref,
+            thread=threading.current_thread(),
+            loop=asyncio.get_event_loop(),
+            system=system_ref,
+            registry=None,
+        ),
+    )
+    store = SqlAlchemyStore(engine=create_engine("sqlite:///db", strategy=ASYNCIO_STRATEGY))
+    persister_cell = BootstrapActorCell(
+        behaviour=persister.Persister.start(store),
+        context=ActorContext(
+            ref=persister_ref,
+            parent=system_ref,
+            thread=threading.current_thread(),
+            loop=asyncio.get_event_loop(),
+            system=system_ref,
+            registry=registry_ref,
         ),
     )
 
     system_task = asyncio.create_task(system_cell.run())
     default_dispatcher_task = asyncio.create_task(default_dispatcher_cell.run())
     root_task = asyncio.create_task(root_cell.run())
+    registry_task = asyncio.create_task(registry_cell.run())
+    persister_task = asyncio.create_task(persister_cell.run())
 
     await system_ref.ask(
         lambda reply_to: SpawnActor(
@@ -324,4 +364,4 @@ async def system(user: Behaviour, default_dispatcher: Callable[[], Behaviour] = 
         )
     )
 
-    await asyncio.gather(system_task, default_dispatcher_task, root_task)
+    await asyncio.gather(system_task, default_dispatcher_task, root_task, registry_task, persister_task)

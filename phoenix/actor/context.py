@@ -40,6 +40,8 @@ class ActorContext:
     The system that this Actor belongs to.
     """
 
+    registry: Optional[Ref] = attr.ib(validator=optional(instance_of(Ref)))
+
     children: List[Ref] = attr.ib(default=v())
 
     @thread.validator

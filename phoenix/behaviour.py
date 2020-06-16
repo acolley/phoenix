@@ -1,7 +1,7 @@
 import attr
 from attr.validators import instance_of, optional
 import inspect
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
 # TODO: make it easier to inspect the graph of behaviours that constitute an actor
 
@@ -140,4 +140,27 @@ def restart(behaviour) -> Restart:
     return Restart(behaviour=behaviour)
 
 
-Behaviour = Union[Schedule, Stop, Ignore, Setup, Receive, Same]
+@attr.s(frozen=True)
+class Persist:
+    id: str = attr.ib(validator=instance_of(str))
+    empty_state = attr.ib()
+    command_handler = attr.ib()
+    event_handler = attr.ib()
+    encode: Callable[[Any], dict] = attr.ib()
+    decode: Callable[[dict], Any] = attr.ib()
+
+
+def persist(
+    id: str, empty_state, command_handler, event_handler, encode, decode
+) -> Persist:
+    return Persist(
+        id=id,
+        empty_state=empty_state,
+        command_handler=command_handler,
+        event_handler=event_handler,
+        encode=encode,
+        decode=decode,
+    )
+
+
+Behaviour = Union[Schedule, Stop, Ignore, Setup, Persist, Receive, Same]

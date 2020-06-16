@@ -5,6 +5,7 @@ from attr.validators import instance_of, optional
 import contextlib
 from datetime import timedelta
 import janus
+import json
 import logging
 from multipledispatch import dispatch
 import threading
@@ -16,6 +17,7 @@ from phoenix.actor.timers import Timers
 from phoenix.behaviour import (
     Behaviour,
     Ignore,
+    Persist,
     Receive,
     Restart,
     Same,
@@ -23,7 +25,9 @@ from phoenix.behaviour import (
     Setup,
     Stop,
 )
+from phoenix.persistence import effect, persister
 from phoenix.ref import Ref
+from phoenix import registry
 from phoenix.system import messages
 
 logger = logging.getLogger(__name__)
@@ -80,7 +84,7 @@ class Actor:
 
     @start.validator
     def check(self, attribute: str, value: Behaviour):
-        if not isinstance(value, (Ignore, Receive, Restart, Schedule, Setup)):
+        if not isinstance(value, (Ignore, Persist, Receive, Restart, Schedule, Setup)):
             raise ValueError(f"Invalid start behaviour: {value}")
 
     async def run(self):
@@ -146,6 +150,58 @@ class Actor:
         await self.context.ref.inbox.async_q.get()
         self.context.ref.inbox.async_q.task_done()
         return Same()
+
+    @dispatch(Persist)
+    async def execute(self, behaviour: Persist):
+        logger.debug("[%s] Executing %s", self.context.ref, behaviour)
+        
+        # Persister might take some time to register
+        while True:
+            response = await self.context.registry.ask(lambda reply_to: registry.Find(reply_to=reply_to, key="persister"))
+            if isinstance(response, registry.NotFound):
+                await asyncio.sleep(1)
+            else:
+                persister_ref = next(iter(response.refs))
+                break
+
+        @dispatch(object, effect.Persist, int)
+        async def execute_effect(state, eff: effect.Persist, offset: int):
+            events = [behaviour.encode(x) for x in eff.events]
+            events = [persister.Event(topic_id=topic_id, data=json.dumps(data)) for topic_id, data in events]
+            reply = await persister_ref.ask(
+                lambda reply_to: persister.Persist(
+                    reply_to=reply_to, id=behaviour.id, events=events, offset=offset
+                )
+            )
+            for event in eff.events:
+                state = await behaviour.event_handler(state, event)
+            return state, reply.offset + 1
+
+        @dispatch(object, effect.Reply, int)
+        async def execute_effect(state, eff: effect.Reply, offset: int):
+            await eff.reply_to.tell(eff.message)
+            return state, offset
+
+        state = behaviour.empty_state
+        reply = await persister_ref.ask(
+            lambda reply_to: persister.Load(reply_to=reply_to, id=behaviour.id)
+        )
+        if isinstance(reply, persister.Loaded):
+            for event in reply.events:
+                data = json.loads(event.data)
+                event = behaviour.decode(topic_id=event.topic_id, data=data)
+                state = await behaviour.event_handler(state, event)
+            offset = reply.offset + 1
+        else:
+            offset = 0
+
+        while True:
+            msg = await self.context.ref.inbox.async_q.get()
+
+            eff = await behaviour.command_handler(state, msg)
+            state, offset = await execute_effect(state, eff, offset)
+
+            self.context.ref.inbox.async_q.task_done()
 
     @dispatch(Restart)
     async def execute(self, behaviour: Restart):

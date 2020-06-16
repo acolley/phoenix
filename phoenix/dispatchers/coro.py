@@ -28,15 +28,14 @@ class CoroDispatcher:
     def start() -> Behaviour:
         async def f(context: ActorContext):
             return CoroDispatcher.active(context=context, actors=m())
+
         return behaviour.setup(f)
-    
+
     @staticmethod
     def active(context: ActorContext, actors: PMap) -> Behaviour:
         @dispatch(SpawnActor)
         async def coro_dispatcher_handle(msg: SpawnActor):
-            ref = Ref(
-                id=msg.id, inbox=janus.Queue(), thread=threading.current_thread()
-            )
+            ref = Ref(id=msg.id, inbox=janus.Queue(), thread=threading.current_thread())
             cell = ActorCell(
                 behaviour=msg.behaviour,
                 context=ActorContext(
@@ -45,6 +44,7 @@ class CoroDispatcher:
                     thread=threading.current_thread(),
                     loop=asyncio.get_event_loop(),
                     system=context.system,
+                    registry=context.registry,
                 ),
             )
             task = asyncio.create_task(cell.run())
@@ -70,5 +70,5 @@ class CoroDispatcher:
 
         async def f(msg):
             return await coro_dispatcher_handle(msg)
-        
+
         return behaviour.receive(f)

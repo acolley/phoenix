@@ -155,4 +155,7 @@ class PingPong:
 def main():
     logging.basicConfig(level=logging.WARNING)
     # FIXME: fails with `KeyError: Ref(id='Router')` for six or more threads.
-    asyncio.run(system(PingPong.start(), default_dispatcher=partial(ThreadDispatcher.start, 6)), debug=True)
+    asyncio.run(
+        system(PingPong.start(), default_dispatcher=partial(ThreadDispatcher.start, 6)),
+        debug=True,
+    )
