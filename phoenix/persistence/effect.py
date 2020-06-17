@@ -33,4 +33,4 @@ def none() -> NoEffect:
     return NoEffect()
 
 
-Effect = Union[Persist, Reply]
+Effect = Union[NoEffect, Persist, Reply]

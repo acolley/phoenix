@@ -1,22 +1,9 @@
 import asyncio
 import attr
 from attr.validators import instance_of
-from sqlalchemy import Column, Integer, MetaData, String, Table, Text, UniqueConstraint
-from sqlalchemy.schema import CreateTable
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Tuple
 
-
-metadata = MetaData()
-events_table = Table(
-    "events",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("entity_id", String),
-    Column("offset", Integer),
-    Column("topic_id", Text),
-    Column("data", Text),
-    UniqueConstraint("entity_id", "offset"),
-)
+from phoenix.persistence.db import events_table, metadata
 
 
 @attr.s
@@ -27,6 +14,9 @@ class Event:
 
 @attr.s
 class SqlAlchemyStore:
+    """
+    Event-sourcing data store.
+    """
     engine = attr.ib()
 
     async def create_schema(self):
@@ -49,7 +39,7 @@ class SqlAlchemyStore:
 
     async def load(
         self, entity_id: str, offset: Optional[int] = None
-    ) -> Iterable[Event]:
+    ) -> Tuple[Iterable[Event], int]:
         async with self.engine.connect() as conn:
             async with conn.begin():
                 query = events_table.select(events_table.c.entity_id == entity_id)

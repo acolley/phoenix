@@ -176,6 +176,10 @@ class Actor:
             for event in eff.events:
                 state = await behaviour.event_handler(state, event)
             return state, reply.offset + 1
+        
+        @dispatch(object, effect.NoEffect, int)
+        async def execute_effect(state, eff: effect.NoEffect, offset: int):
+            return state, offset
 
         @dispatch(object, effect.Reply, int)
         async def execute_effect(state, eff: effect.Reply, offset: int):
