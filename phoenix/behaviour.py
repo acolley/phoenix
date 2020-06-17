@@ -1,17 +1,20 @@
 import attr
 from attr.validators import instance_of, optional
 import inspect
-from pyrsistent import PRecord, field
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
 # TODO: make it easier to inspect the graph of behaviours that constitute an actor
 
 
-class Receive(PRecord):
+@attr.s
+class Receive:
 
-    f = field(
-        invariant=lambda x: (inspect.iscoroutinefunction(x), f"Not a coroutine: {x}")
-    )
+    f = attr.ib()
+
+    @f.validator
+    def check(self, attribute: str, value):
+        if not inspect.iscoroutinefunction(value):
+            raise ValueError(f"Not a coroutine: {value}")
 
     async def __call__(self, message):
         return await self.f(message)
@@ -28,14 +31,18 @@ def receive_decorator(f):
     return _receive
 
 
-class Setup(PRecord):
+@attr.s
+class Setup:
 
-    f = field(
-        invariant=lambda x: (inspect.iscoroutinefunction(x), f"Not a coroutine: {x}")
-    )
+    f = attr.ib()
 
-    async def __call__(self, spawn):
-        return await self.f(spawn)
+    @f.validator
+    def check(self, attribute: str, value):
+        if not inspect.iscoroutinefunction(value):
+            raise ValueError(f"Not a coroutine: {value}")
+
+    async def __call__(self, context):
+        return await self.f(context)
 
 
 def setup(f) -> Setup:
@@ -99,6 +106,7 @@ class Restart:
     """
 
     behaviour = attr.ib(validator=instance_of((Schedule, Setup, Receive, Same, Ignore)))
+    name: Optional[str] = attr.ib(validator=optional(instance_of(str)), default=None)
     max_restarts: Optional[int] = attr.ib(
         validator=optional(instance_of(int)), default=3
     )
@@ -132,4 +140,27 @@ def restart(behaviour) -> Restart:
     return Restart(behaviour=behaviour)
 
 
-Behaviour = Union[Schedule, Stop, Ignore, Setup, Receive, Same]
+@attr.s(frozen=True)
+class Persist:
+    id: str = attr.ib(validator=instance_of(str))
+    empty_state = attr.ib()
+    command_handler = attr.ib()
+    event_handler = attr.ib()
+    encode: Callable[[Any], dict] = attr.ib()
+    decode: Callable[[dict], Any] = attr.ib()
+
+
+def persist(
+    id: str, empty_state, command_handler, event_handler, encode, decode
+) -> Persist:
+    return Persist(
+        id=id,
+        empty_state=empty_state,
+        command_handler=command_handler,
+        event_handler=event_handler,
+        encode=encode,
+        decode=decode,
+    )
+
+
+Behaviour = Union[Schedule, Stop, Ignore, Setup, Persist, Receive, Same]

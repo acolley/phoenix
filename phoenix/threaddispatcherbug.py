@@ -1,12 +1,16 @@
+"""
+Demonstrate a thread dispatcher bug.
+
+ThreadDispatcher is dispatching actor spawns and stops to the wrong thread/worker.
+"""
+
 import abc
 import asyncio
 from asyncio import Queue, Task
 import attr
 from attr.validators import instance_of
-import cattr
 from datetime import timedelta
 from functools import partial
-import importlib
 import logging
 from multipledispatch import dispatch
 from pyrsistent import PRecord, field
@@ -16,53 +20,9 @@ from typing import Any, Callable, Optional, Union
 
 from phoenix import behaviour, routers
 from phoenix.behaviour import Behaviour
-from phoenix.persistence import effect
+from phoenix.dispatchers.thread import ThreadDispatcher
 from phoenix.ref import Ref
 from phoenix.system.system import system
-
-
-def encode(event: Any) -> (str, dict):
-    klass = event.__class__
-    topic_id = f"{klass.__module__}#{getattr(klass, '__qualname__', klass.__name__)}"
-    return topic_id, cattr.unstructure(event)
-
-
-def decode(topic_id: str, data: dict) -> Any:
-    module_name, _, class_name = topic_id.partition("#")
-    module = importlib.import_module(module_name)
-    # TODO: support nested classes
-    klass = getattr(module, class_name)
-    return cattr.structure(data, klass)
-
-
-@attr.s
-class Count:
-    n: int = attr.ib(validator=instance_of(int))
-
-
-@attr.s
-class Counted:
-    n: int = attr.ib(validator=instance_of(int))
-
-
-class Counter:
-    @staticmethod
-    def start(id="counter") -> Behaviour:
-        async def command_handler(state: int, cmd: Count) -> effect.Effect:
-            print(state)
-            return effect.persist([Counted(n=cmd.n)])
-
-        async def event_handler(state: int, evt: Counted) -> int:
-            return state + evt.n
-
-        return behaviour.persist(
-            id=id,
-            empty_state=0,
-            command_handler=command_handler,
-            event_handler=event_handler,
-            encode=encode,
-            decode=decode,
-        )
 
 
 class Greeter:
@@ -155,34 +115,30 @@ class PingPong:
     @staticmethod
     def start() -> Behaviour:
         async def f(context):
-            counter = await context.spawn(Counter.start(), "Counter")
-            await counter.tell(Count(2))
-            await counter.tell(Count(3))
-            # greeter = await context.spawn(Greeter.start("Hello"), "Greeter")
-            # await context.watch(greeter, PingPong.GreeterStopped())
-            # ping = await context.spawn(Ping.start(), "Ping")
-            # pong = await context.spawn(Pong.start(), "Pong")
-            # await ping.tell(pong)
+            greeter = await context.spawn(Greeter.start("Hello"), "Greeter")
+            await context.watch(greeter, PingPong.GreeterStopped())
+            ping = await context.spawn(Ping.start(), "Ping")
+            pong = await context.spawn(Pong.start(), "Pong")
+            await ping.tell(pong)
 
-            # def worker() -> Behaviour:
-            #     async def f(message):
-            #         await message.reply_to.tell(message.message)
-            #         return behaviour.same()
+            def worker() -> Behaviour:
+                async def f(message):
+                    await message.reply_to.tell(message.message)
+                    return behaviour.same()
 
-            #     return behaviour.receive(f)
+                return behaviour.receive(f)
 
-            # router = routers.pool(1)(worker())
-            # echo = await context.spawn(router, "Router")
-            # replies = await asyncio.gather(
-            #     echo.ask(partial(EchoMsg, message="Echooooo")),
-            #     echo.ask(partial(EchoMsg, message="Meeeeeee")),
-            # )
-            # print(replies)
+            router = routers.pool(1)(worker())
+            echo = await context.spawn(router, "Router")
+            replies = await asyncio.gather(
+                echo.ask(partial(EchoMsg, message="Echooooo")),
+                echo.ask(partial(EchoMsg, message="Meeeeeee")),
+            )
+            print(replies)
 
-            # await context.stop(echo)
+            await context.stop(echo)
 
-            # return PingPong.active(context)
-            return behaviour.ignore()
+            return PingPong.active(context)
 
         return behaviour.restart(behaviour.setup(f))
 
@@ -197,5 +153,9 @@ class PingPong:
 
 
 def main():
-    logging.basicConfig(level=logging.DEBUG)
-    asyncio.run(system(PingPong.start()), debug=True)
+    logging.basicConfig(level=logging.WARNING)
+    # FIXME: fails with `KeyError: Ref(id='Router')` for six or more threads.
+    asyncio.run(
+        system(PingPong.start(), default_dispatcher=partial(ThreadDispatcher.start, 6)),
+        debug=True,
+    )

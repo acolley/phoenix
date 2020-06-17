@@ -2,8 +2,8 @@ from pyrsistent import v
 from typing import Any, Callable, List
 
 from phoenix import behaviour
-from phoenix.actor import Ref
 from phoenix.behaviour import Behaviour
+from phoenix.ref import Ref
 
 
 class PoolRouter:
@@ -14,10 +14,10 @@ class PoolRouter:
 
     @staticmethod
     def start(worker_behaviour: Behaviour, size: int) -> Behaviour:
-        async def f(spawn):
+        async def f(context):
             workers = v()
-            for _ in range(size):
-                worker = await spawn(worker_behaviour)
+            for i in range(size):
+                worker = await context.spawn(worker_behaviour, f"{context.ref.id}-{i}")
                 workers = workers.append(worker)
             return PoolRouter.work(workers, 0)
 
@@ -37,4 +37,5 @@ class PoolRouter:
 def pool(size: int) -> Callable[[], Callable[[], Behaviour]]:
     def _factory(worker_behaviour: Behaviour) -> Behaviour:
         return PoolRouter.start(worker_behaviour, size)
+
     return _factory
