@@ -196,31 +196,33 @@ class PingPong:
             counter = await context.spawn(Counter.start(), "Counter")
             await counter.tell(Count(2))
             await counter.tell(Count(3))
-            # greeter = await context.spawn(Greeter.start("Hello"), "Greeter")
-            # await context.watch(greeter, PingPong.GreeterStopped())
-            # ping = await context.spawn(Ping.start(), "Ping")
-            # pong = await context.spawn(Pong.start(), "Pong")
-            # await ping.tell(pong)
+            greeter = await context.spawn(Greeter.start("Hello"), "Greeter")
+            await context.watch(greeter, PingPong.GreeterStopped())
+            ping = await context.spawn(Ping.start(), "Ping")
+            pong = await context.spawn(Pong.start(), "Pong")
+            await ping.tell(pong)
 
-            # def worker() -> Behaviour:
-            #     async def f(message):
-            #         await message.reply_to.tell(message.message)
-            #         return behaviour.same()
+            def worker() -> Behaviour:
+                async def f(message):
+                    await message.reply_to.tell(message.message)
+                    return behaviour.same()
 
-            #     return behaviour.receive(f)
+                return behaviour.receive(f)
 
-            # router = routers.pool(1)(worker())
-            # echo = await context.spawn(router, "Router")
-            # replies = await asyncio.gather(
-            #     echo.ask(partial(EchoMsg, message="Echooooo")),
-            #     echo.ask(partial(EchoMsg, message="Meeeeeee")),
-            # )
-            # print(replies)
+            router = routers.pool(
+                2, routers.ConsistentHashing(lambda msg: msg.message)
+            )(worker())
+            echo = await context.spawn(router, "Router")
+            replies = await asyncio.gather(
+                echo.ask(partial(EchoMsg, message="Echooooo")),
+                echo.ask(partial(EchoMsg, message="Meeeeeee")),
+            )
+            print(replies)
 
-            # await context.stop(echo)
+            await context.stop(echo)
 
-            # return PingPong.active(context)
-            return behaviour.ignore()
+            return PingPong.active(context)
+            # return behaviour.ignore()
 
         return behaviour.restart(behaviour.setup(f))
 
