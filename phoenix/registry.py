@@ -23,7 +23,9 @@ class Find:
 
 @attr.s
 class Listing:
-    refs: Iterable[Ref] = attr.ib(validator=deep_iterable(member_validator=instance_of(Ref)))
+    refs: Iterable[Ref] = attr.ib(
+        validator=deep_iterable(member_validator=instance_of(Ref))
+    )
 
 
 @attr.s
@@ -36,11 +38,13 @@ class Registry:
     def start() -> Behaviour:
         async def f(context):
             return Registry.active(m())
+
         return behaviour.setup(f)
 
     @staticmethod
     def active(registered: Mapping[str, Iterable[Ref]]) -> Behaviour:
         dispatch_namespace = {}
+
         @dispatch(Find, namespace=dispatch_namespace)
         async def handle(msg: Find):
             refs = registered.get(msg.key)
@@ -57,4 +61,5 @@ class Registry:
 
         async def f(msg):
             return await handle(msg)
+
         return behaviour.receive(f)

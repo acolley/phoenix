@@ -40,16 +40,22 @@ class Persister:
     def start(store) -> Behaviour:
         async def f(context):
             await store.create_schema()
-            await context.registry.tell(registry.Register(key="persister", ref=context.ref))
+            await context.registry.tell(
+                registry.Register(key="persister", ref=context.ref)
+            )
             return Persister.active(store)
+
         return behaviour.setup(f)
-    
+
     @staticmethod
     def active(store) -> Behaviour:
         dispatch_namespace = {}
+
         @dispatch(Persist, namespace=dispatch_namespace)
         async def handle(msg: Persist):
-            offset = await store.persist(entity_id=msg.id, events=msg.events, offset=msg.offset)
+            offset = await store.persist(
+                entity_id=msg.id, events=msg.events, offset=msg.offset
+            )
             await msg.reply_to.tell(Persisted(offset=offset))
             return behaviour.same()
 

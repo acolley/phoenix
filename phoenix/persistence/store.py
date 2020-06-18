@@ -17,12 +17,17 @@ class SqlAlchemyStore:
     """
     Event-sourcing data store.
     """
+
     engine = attr.ib()
 
     async def create_schema(self):
-        await asyncio.get_event_loop().run_in_executor(None, lambda: metadata.create_all(bind=self.engine.sync_engine))
+        await asyncio.get_event_loop().run_in_executor(
+            None, lambda: metadata.create_all(bind=self.engine.sync_engine)
+        )
 
-    async def persist(self, entity_id: str, events: Iterable[Event], offset: int) -> int:
+    async def persist(
+        self, entity_id: str, events: Iterable[Event], offset: int
+    ) -> int:
         async with self.engine.connect() as conn:
             async with conn.begin():
                 for i, event in enumerate(events):

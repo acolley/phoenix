@@ -334,7 +334,9 @@ async def system(
             registry=None,
         ),
     )
-    store = SqlAlchemyStore(engine=create_engine("sqlite:///db", strategy=ASYNCIO_STRATEGY))
+    store = SqlAlchemyStore(
+        engine=create_engine("sqlite:///db", strategy=ASYNCIO_STRATEGY)
+    )
     persister_cell = BootstrapActorCell(
         behaviour=persister.Persister.start(store),
         context=ActorContext(
@@ -363,4 +365,6 @@ async def system(
         )
     )
 
-    await asyncio.gather(system_task, default_dispatcher_task, root_task, registry_task, persister_task)
+    await asyncio.gather(
+        system_task, default_dispatcher_task, root_task, registry_task, persister_task
+    )

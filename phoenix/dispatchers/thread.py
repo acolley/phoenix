@@ -93,6 +93,7 @@ class ThreadDispatcher:
     def active(state: State) -> Behaviour:
 
         dispatch_namespace = {}
+
         @dispatch(SpawnActor, namespace=dispatch_namespace)
         async def handle(msg: SpawnActor):
             nonlocal state

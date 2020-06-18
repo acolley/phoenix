@@ -34,6 +34,7 @@ class CoroDispatcher:
     @staticmethod
     def active(context: ActorContext, actors: PMap) -> Behaviour:
         dispatch_namespace = {}
+
         @dispatch(SpawnActor, namespace=dispatch_namespace)
         async def coro_dispatcher_handle(msg: SpawnActor):
             ref = Ref(id=msg.id, inbox=janus.Queue(), thread=threading.current_thread())

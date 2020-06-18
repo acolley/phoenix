@@ -16,10 +16,13 @@ class SqlAlchemyReadJournal:
     """
     Load events in sequence from an event-sourced data store.
     """
+
     engine = attr.ib()
     decode = attr.ib()
 
-    async def load(self, offset: Optional[int] = None, limit: int = 100) -> Tuple[Iterable[Any], int]:
+    async def load(
+        self, offset: Optional[int] = None, limit: int = 100
+    ) -> Tuple[Iterable[Any], int]:
         if limit > 100:
             raise ValueError("Maximum limit of 100.")
 
@@ -31,7 +34,13 @@ class SqlAlchemyReadJournal:
                 query = query.limit(limit)
                 events = await conn.execute(query)
                 events = await events.fetchall()
-        events = [Event(entity_id=x.entity_id, event=self.decode(topic_id=x.topic_id, data=x.data)) for x in events]
+        events = [
+            Event(
+                entity_id=x.entity_id,
+                event=self.decode(topic_id=x.topic_id, data=x.data),
+            )
+            for x in events
+        ]
         if events:
             offset = events[-1].id
         else:

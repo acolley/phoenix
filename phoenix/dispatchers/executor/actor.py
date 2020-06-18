@@ -56,9 +56,9 @@ class Executor:
 
     @staticmethod
     def active(context, actors) -> Behaviour:
-
         async def f(msg):
             dispatch_namespace = {}
+
             @dispatch(Executor.SpawnActor, namespace=dispatch_namespace)
             async def handle(msg: Executor.SpawnActor):
                 ref = Ref(

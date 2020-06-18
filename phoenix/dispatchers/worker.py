@@ -52,7 +52,9 @@ class DispatcherWorker:
     def start() -> Behaviour:
         async def f(context: ActorContext):
             # TODO: restart threads and their actors if failure occurs
-            thread = ThreadExecutor(dispatcher=context.ref, system=context.system, registry=context.registry)
+            thread = ThreadExecutor(
+                dispatcher=context.ref, system=context.system, registry=context.registry
+            )
             thread.daemon = True
             thread.start()
             return DispatcherWorker.waiting(
@@ -64,6 +66,7 @@ class DispatcherWorker:
     @staticmethod
     def waiting(context, thread: ThreadExecutor, requests) -> Behaviour:
         dispatch_namespace = {}
+
         async def f(message):
             if isinstance(message, ExecutorCreated):
                 # now the executor is ready, process all requests that were waiting
@@ -115,6 +118,7 @@ class DispatcherWorker:
     @staticmethod
     def active(context, thread: ThreadExecutor, executor: Ref) -> Behaviour:
         dispatch_namespace = {}
+
         @dispatch(DispatcherWorker.SpawnActor, namespace=dispatch_namespace)
         async def worker_dispatcher_handle(msg: DispatcherWorker.SpawnActor):
             reply = await executor.ask(

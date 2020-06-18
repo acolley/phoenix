@@ -154,22 +154,27 @@ class Actor:
     @dispatch(Persist)
     async def execute(self, behaviour: Persist):
         logger.debug("[%s] Executing %s", self.context.ref, behaviour)
-        
+
         # Persister might take some time to register
         while True:
-            response = await self.context.registry.ask(lambda reply_to: registry.Find(reply_to=reply_to, key="persister"))
+            response = await self.context.registry.ask(
+                lambda reply_to: registry.Find(reply_to=reply_to, key="persister")
+            )
             if isinstance(response, registry.NotFound):
                 await asyncio.sleep(1)
             else:
                 persister_ref = next(iter(response.refs))
                 break
-        
+
         dispatcher_namespace = {}
 
         @dispatch(object, effect.Persist, int, namespace=dispatcher_namespace)
         async def execute_effect(state, eff: effect.Persist, offset: int):
             events = [behaviour.encode(x) for x in eff.events]
-            events = [persister.Event(topic_id=topic_id, data=json.dumps(data)) for topic_id, data in events]
+            events = [
+                persister.Event(topic_id=topic_id, data=json.dumps(data))
+                for topic_id, data in events
+            ]
             reply = await persister_ref.ask(
                 lambda reply_to: persister.Persist(
                     reply_to=reply_to, id=behaviour.id, events=events, offset=offset
@@ -178,7 +183,7 @@ class Actor:
             for event in eff.events:
                 state = await behaviour.event_handler(state, event)
             return state, reply.offset + 1
-        
+
         @dispatch(object, effect.NoEffect, int, namespace=dispatcher_namespace)
         async def execute_effect(state, eff: effect.NoEffect, offset: int):
             return state, offset
