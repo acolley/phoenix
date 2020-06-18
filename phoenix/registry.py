@@ -40,7 +40,8 @@ class Registry:
 
     @staticmethod
     def active(registered: Mapping[str, Iterable[Ref]]) -> Behaviour:
-        @dispatch(Find)
+        dispatch_namespace = {}
+        @dispatch(Find, namespace=dispatch_namespace)
         async def handle(msg: Find):
             refs = registered.get(msg.key)
             if refs is None:
@@ -49,7 +50,7 @@ class Registry:
                 await msg.reply_to.tell(Listing(refs=refs))
             return behaviour.same()
 
-        @dispatch(Register)
+        @dispatch(Register, namespace=dispatch_namespace)
         async def handle(msg: Register):
             refs = registered.get(msg.key, s())
             return Registry.active(registered.set(msg.key, refs.add(msg.ref)))

@@ -63,10 +63,11 @@ class DispatcherWorker:
 
     @staticmethod
     def waiting(context, thread: ThreadExecutor, requests) -> Behaviour:
+        dispatch_namespace = {}
         async def f(message):
             if isinstance(message, ExecutorCreated):
                 # now the executor is ready, process all requests that were waiting
-                @dispatch(DispatcherWorker.SpawnActor)
+                @dispatch(DispatcherWorker.SpawnActor, namespace=dispatch_namespace)
                 async def _handle(msg: DispatcherWorker.SpawnActor):
                     reply = await message.ref.ask(
                         lambda reply_to: Executor.SpawnActor(
@@ -80,7 +81,7 @@ class DispatcherWorker:
                         DispatcherWorker.ActorSpawned(ref=reply.ref)
                     )
 
-                @dispatch(DispatcherWorker.StopActor)
+                @dispatch(DispatcherWorker.StopActor, namespace=dispatch_namespace)
                 async def _handle(msg: DispatcherWorker.StopActor):
                     await message.ref.ask(
                         lambda reply_to: Executor.StopActor(
@@ -89,7 +90,7 @@ class DispatcherWorker:
                     )
                     await msg.reply_to.tell(DispatcherWorker.ActorStopped(ref=msg.ref))
 
-                @dispatch(DispatcherWorker.RemoveActor)
+                @dispatch(DispatcherWorker.RemoveActor, namespace=dispatch_namespace)
                 async def _handle(msg: DispatcherWorker.RemoveActor):
                     await message.ref.ask(
                         lambda reply_to: Executor.RemoveActor(
@@ -113,7 +114,8 @@ class DispatcherWorker:
 
     @staticmethod
     def active(context, thread: ThreadExecutor, executor: Ref) -> Behaviour:
-        @dispatch(DispatcherWorker.SpawnActor)
+        dispatch_namespace = {}
+        @dispatch(DispatcherWorker.SpawnActor, namespace=dispatch_namespace)
         async def worker_dispatcher_handle(msg: DispatcherWorker.SpawnActor):
             print(f"[{context.ref}] [{msg}] executor={executor}")
             reply = await executor.ask(
@@ -126,7 +128,7 @@ class DispatcherWorker:
             )
             await msg.reply_to.tell(DispatcherWorker.ActorSpawned(ref=reply.ref))
 
-        @dispatch(DispatcherWorker.StopActor)
+        @dispatch(DispatcherWorker.StopActor, namespace=dispatch_namespace)
         async def worker_dispatcher_handle(msg: DispatcherWorker.StopActor):
             print(
                 f"[{context.ref}] [{msg}] executor={executor} inbox={context.ref.inbox}"
@@ -136,7 +138,7 @@ class DispatcherWorker:
             )
             await msg.reply_to.tell(DispatcherWorker.ActorStopped(ref=msg.ref))
 
-        @dispatch(DispatcherWorker.RemoveActor)
+        @dispatch(DispatcherWorker.RemoveActor, namespace=dispatch_namespace)
         async def worker_dispatcher_handle(msg: DispatcherWorker.RemoveActor):
             await executor.ask(
                 lambda reply_to: Executor.RemoveActor(reply_to=reply_to, ref=msg.ref)

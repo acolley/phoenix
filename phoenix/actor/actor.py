@@ -105,7 +105,7 @@ class Actor:
             while behaviours:
                 logger.debug("[%s] Main: %s", self.context.ref, behaviours)
                 current = behaviours.pop()
-                next_ = await self.execute(current)
+                next_ = await current.execute(self.context, self.timers)
                 if isinstance(next_, Same):
                     behaviours.append(current)
                 elif next_:
@@ -137,7 +137,7 @@ class Actor:
     async def execute(self, behaviour: Receive):
         logger.debug("[%s] Executing %s", self.context.ref, behaviour)
         message = await self.context.ref.inbox.async_q.get()
-        logger.debug("[%s] Message received: %s", self.context.ref, message)
+        logger.debug("[%s] Message received: %s", self.context.ref, repr(message)[:200])
         try:
             next_ = await behaviour(message)
         finally:
@@ -163,8 +163,10 @@ class Actor:
             else:
                 persister_ref = next(iter(response.refs))
                 break
+        
+        dispatcher_namespace = {}
 
-        @dispatch(object, effect.Persist, int)
+        @dispatch(object, effect.Persist, int, namespace=dispatcher_namespace)
         async def execute_effect(state, eff: effect.Persist, offset: int):
             events = [behaviour.encode(x) for x in eff.events]
             events = [persister.Event(topic_id=topic_id, data=json.dumps(data)) for topic_id, data in events]
@@ -177,11 +179,11 @@ class Actor:
                 state = await behaviour.event_handler(state, event)
             return state, reply.offset + 1
         
-        @dispatch(object, effect.NoEffect, int)
+        @dispatch(object, effect.NoEffect, int, namespace=dispatcher_namespace)
         async def execute_effect(state, eff: effect.NoEffect, offset: int):
             return state, offset
 
-        @dispatch(object, effect.Reply, int)
+        @dispatch(object, effect.Reply, int, namespace=dispatcher_namespace)
         async def execute_effect(state, eff: effect.Reply, offset: int):
             await eff.reply_to.tell(eff.message)
             return state, offset

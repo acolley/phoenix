@@ -99,7 +99,8 @@ class ThreadDispatcher:
     def active(state: State) -> Behaviour:
         print(f"[{state.context.ref}] [{state.index}] {state.actor_dispatcher}")
 
-        @dispatch(SpawnActor)
+        dispatch_namespace = {]}
+        @dispatch(SpawnActor, namespace=dispatch_namespace)
         async def thread_dispatcher_handle(msg: SpawnActor):
             nonlocal state
             try:
@@ -148,7 +149,7 @@ class ThreadDispatcher:
 
             return ThreadDispatcher.active(state)
 
-        @dispatch(StopActor)
+        @dispatch(StopActor, namespace=dispatch_namespace)
         async def thread_dispatcher_handle(msg: StopActor):
             nonlocal state
 
@@ -175,7 +176,7 @@ class ThreadDispatcher:
 
             return ThreadDispatcher.active(state)
 
-        @dispatch(RemoveActor)
+        @dispatch(RemoveActor, namespace=dispatch_namespace)
         async def thread_dispatcher_handle(msg: RemoveActor):
             nonlocal state
 

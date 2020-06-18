@@ -46,13 +46,14 @@ class Persister:
     
     @staticmethod
     def active(store) -> Behaviour:
-        @dispatch(Persist)
+        dispatch_namespace = {}
+        @dispatch(Persist, namespace=dispatch_namespace)
         async def handle(msg: Persist):
             offset = await store.persist(entity_id=msg.id, events=msg.events, offset=msg.offset)
             await msg.reply_to.tell(Persisted(offset=offset))
             return behaviour.same()
 
-        @dispatch(Load)
+        @dispatch(Load, namespace=dispatch_namespace)
         async def handle(msg: Load):
             (events, offset) = await store.load(entity_id=msg.id)
             await msg.reply_to.tell(Loaded(events=events, offset=offset))

@@ -33,7 +33,8 @@ class CoroDispatcher:
 
     @staticmethod
     def active(context: ActorContext, actors: PMap) -> Behaviour:
-        @dispatch(SpawnActor)
+        dispatch_namespace = {}
+        @dispatch(SpawnActor, namespace=dispatch_namespace)
         async def coro_dispatcher_handle(msg: SpawnActor):
             ref = Ref(id=msg.id, inbox=janus.Queue(), thread=threading.current_thread())
             cell = ActorCell(
@@ -51,7 +52,7 @@ class CoroDispatcher:
             await msg.reply_to.tell(ActorSpawned(ref=ref))
             return CoroDispatcher.active(context=context, actors=actors.set(ref, task))
 
-        @dispatch(StopActor)
+        @dispatch(StopActor, namespace=dispatch_namespace)
         async def coro_dispatcher_handle(msg: SpawnActor):
             task = actors[msg.ref]
             task.cancel()
@@ -60,7 +61,7 @@ class CoroDispatcher:
             await msg.reply_to.tell(ActorStopped(ref=msg.ref))
             return CoroDispatcher.active(context=context, actors=actors.remove(msg.ref))
 
-        @dispatch(RemoveActor)
+        @dispatch(RemoveActor, namespace=dispatch_namespace)
         async def coro_dispatcher_handle(msg: SpawnActor):
             task = actors[msg.ref]
             # Task is finished or finishing so we wait for it...
