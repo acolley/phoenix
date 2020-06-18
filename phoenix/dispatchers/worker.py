@@ -52,7 +52,7 @@ class DispatcherWorker:
     def start() -> Behaviour:
         async def f(context: ActorContext):
             # TODO: restart threads and their actors if failure occurs
-            thread = ThreadExecutor(dispatcher=context.ref, system=context.system)
+            thread = ThreadExecutor(dispatcher=context.ref, system=context.system, registry=context.registry)
             thread.daemon = True
             thread.start()
             return DispatcherWorker.waiting(
@@ -117,7 +117,6 @@ class DispatcherWorker:
         dispatch_namespace = {}
         @dispatch(DispatcherWorker.SpawnActor, namespace=dispatch_namespace)
         async def worker_dispatcher_handle(msg: DispatcherWorker.SpawnActor):
-            print(f"[{context.ref}] [{msg}] executor={executor}")
             reply = await executor.ask(
                 lambda reply_to: Executor.SpawnActor(
                     reply_to=reply_to,
@@ -130,9 +129,6 @@ class DispatcherWorker:
 
         @dispatch(DispatcherWorker.StopActor, namespace=dispatch_namespace)
         async def worker_dispatcher_handle(msg: DispatcherWorker.StopActor):
-            print(
-                f"[{context.ref}] [{msg}] executor={executor} inbox={context.ref.inbox}"
-            )
             await executor.ask(
                 lambda reply_to: Executor.StopActor(reply_to=reply_to, ref=msg.ref)
             )

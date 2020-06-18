@@ -9,6 +9,7 @@ from functools import partial
 import importlib
 import logging
 from multipledispatch import dispatch
+from pathlib import Path
 from pyrsistent import PRecord, field
 import random
 import traceback
@@ -63,6 +64,39 @@ class Counter:
             encode=encode,
             decode=decode,
         )
+
+
+class ReadSideProcessor:
+    class Timeout:
+        pass
+
+    @attr.s
+    class Processed:
+        offset: int = attr.ib(validator=instance_of(int))
+
+    @staticmethod
+    def start(db: Path, read, journal) -> Behaviour:
+        async def f(timers):
+            try:
+                offset = int(db.read_text())
+            except FileNotFoundError:
+                offset = None
+            await timers.start_fixed_rate_timer(ReadSideProcessor.Timeout(), timedelta(60))
+            return ReadSideProcessor.active(db, read, journal, offset)
+        return behaviour.schedule(f)
+    
+    @staticmethod
+    def active(db: Path, read, journal, offset: Optional[int]) -> Behaviour:
+
+        async def f(msg: ReadSideProcessor.Timeout):
+            (events, offset) = await journal.load(offset=offset)
+            async with read.connect() as conn:
+                async with conn.begin():
+                    for event in events:
+                        await apply(conn, event.entity_id, event.event)
+            return ReadSideProcessor.active(db=db, read=read, journal=journal, offset=offset)
+
+        return behaviour.receive(f)
 
 
 class Greeter:

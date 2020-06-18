@@ -56,12 +56,6 @@ class State:
 
     @dispatchers.validator
     def check(self, attribute: str, value: Iterable[Dispatcher]):
-        for dispatcher in value:
-            if dispatcher.ref not in self.actor_dispatcher.values():
-                raise ValueError(
-                    f"Dispatcher `{dispatcher.ref}` must be in actor_dispatcher mapping."
-                )
-
         if len(value) > self.max_threads:
             raise ValueError("Length of dispatchers cannot be greater than max_threads")
 
@@ -97,11 +91,10 @@ class ThreadDispatcher:
 
     @staticmethod
     def active(state: State) -> Behaviour:
-        print(f"[{state.context.ref}] [{state.index}] {state.actor_dispatcher}")
 
-        dispatch_namespace = {]}
+        dispatch_namespace = {}
         @dispatch(SpawnActor, namespace=dispatch_namespace)
-        async def thread_dispatcher_handle(msg: SpawnActor):
+        async def handle(msg: SpawnActor):
             nonlocal state
             try:
                 dispatcher = state.dispatchers[state.index]
@@ -119,6 +112,7 @@ class ThreadDispatcher:
                         thread=threading.current_thread(),
                         loop=asyncio.get_event_loop(),
                         system=state.context.system,
+                        registry=state.context.registry,
                     ),
                 )
                 task = asyncio.create_task(cell.run())
@@ -126,8 +120,6 @@ class ThreadDispatcher:
                 dispatchers = state.dispatchers.append(dispatcher)
             else:
                 dispatchers = state.dispatchers
-
-            print(f"[{state.context.ref}] [SpawnActor] {dispatcher.ref}")
 
             reply = await dispatcher.ref.ask(
                 lambda reply_to: DispatcherWorker.SpawnActor(
@@ -150,16 +142,10 @@ class ThreadDispatcher:
             return ThreadDispatcher.active(state)
 
         @dispatch(StopActor, namespace=dispatch_namespace)
-        async def thread_dispatcher_handle(msg: StopActor):
+        async def handle(msg: StopActor):
             nonlocal state
 
-            print(f"[{state.context.ref}] [{msg}] {state.actor_dispatcher}")
-
             dispatcher = state.actor_dispatcher[msg.ref]
-
-            print(
-                f"[{state.context.ref}] [{msg}] dispatcher={dispatcher} {dispatcher.inbox}"
-            )
 
             # FIXME: sends message to wrong dispatcher
             await dispatcher.ask(
@@ -177,7 +163,7 @@ class ThreadDispatcher:
             return ThreadDispatcher.active(state)
 
         @dispatch(RemoveActor, namespace=dispatch_namespace)
-        async def thread_dispatcher_handle(msg: RemoveActor):
+        async def handle(msg: RemoveActor):
             nonlocal state
 
             dispatcher = state.actor_dispatcher[msg.ref]
@@ -197,6 +183,6 @@ class ThreadDispatcher:
             return ThreadDispatcher.active(state)
 
         async def f(msg):
-            return await thread_dispatcher_handle(msg)
+            return await handle(msg)
 
         return behaviour.receive(f)

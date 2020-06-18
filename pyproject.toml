@@ -20,7 +20,7 @@ black = "^19.10b0"
 
 [tool.poetry.scripts]
 main = "phoenix.main:main"
-dispatchers = "phoenix.dispatchers:main"
+dispatchers = "phoenix.threaddispatcherbug:main"
 
 [build-system]
 requires = ["poetry>=0.12"]

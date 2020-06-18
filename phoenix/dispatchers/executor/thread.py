@@ -20,11 +20,12 @@ class ExecutorCreated:
 
 
 class ThreadExecutor(threading.Thread):
-    def __init__(self, dispatcher: Ref, system: Ref):
+    def __init__(self, dispatcher: Ref, system: Ref, registry: Ref):
         super(ThreadExecutor, self).__init__()
 
         self.dispatcher = dispatcher
         self.system = system
+        self.registry = registry
 
     def run(self):
         logger.debug("Starting ThreadExecutor on thread %s", threading.current_thread())
@@ -43,6 +44,7 @@ class ThreadExecutor(threading.Thread):
                     thread=threading.current_thread(),
                     loop=asyncio.get_event_loop(),
                     system=self.system,
+                    registry=self.registry,
                 ),
             )
 

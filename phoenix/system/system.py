@@ -21,7 +21,6 @@ from phoenix.actor.cell import ActorCell, BootstrapActorCell
 from phoenix.behaviour import Behaviour
 from phoenix.dispatchers import dispatcher as dispatchermsg
 from phoenix.dispatchers.coro import CoroDispatcher
-from phoenix.dispatchers.thread import ThreadDispatcher
 from phoenix.persistence import persister
 from phoenix.persistence.store import SqlAlchemyStore
 from phoenix.ref import Ref

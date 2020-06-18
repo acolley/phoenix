@@ -128,7 +128,7 @@ class PingPong:
 
                 return behaviour.receive(f)
 
-            router = routers.pool(1)(worker())
+            router = routers.pool(5)(worker())
             echo = await context.spawn(router, "Router")
             replies = await asyncio.gather(
                 echo.ask(partial(EchoMsg, message="Echooooo")),

@@ -105,7 +105,7 @@ class Actor:
             while behaviours:
                 logger.debug("[%s] Main: %s", self.context.ref, behaviours)
                 current = behaviours.pop()
-                next_ = await current.execute(self.context, self.timers)
+                next_ = await self.execute(current)
                 if isinstance(next_, Same):
                     behaviours.append(current)
                 elif next_:
