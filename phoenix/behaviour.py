@@ -1,7 +1,9 @@
 import attr
 from attr.validators import instance_of, optional
 import inspect
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Coroutine, Dict, Generic, Optional, TypeVar, Union
+
+from phoenix.persistence.effect import Effect
 
 # TODO: make it easier to inspect the graph of behaviours that constitute an actor
 
@@ -140,19 +142,24 @@ def restart(behaviour) -> Restart:
     return Restart(behaviour=behaviour)
 
 
+S = TypeVar("S")
+C = TypeVar("C")
+E = TypeVar("E")
+
+
 @attr.s(frozen=True)
-class Persist:
+class Persist(Generic[S, C, E]):
     id: str = attr.ib(validator=instance_of(str))
-    empty_state = attr.ib()
-    command_handler = attr.ib()
-    event_handler = attr.ib()
-    encode: Callable[[Any], dict] = attr.ib()
-    decode: Callable[[dict], Any] = attr.ib()
+    empty_state: S = attr.ib()
+    command_handler: Callable[[S, C], Coroutine[Effect, None, None]] = attr.ib()
+    event_handler: Callable[[S, E], Coroutine[S, None, None]] = attr.ib()
+    encode: Callable[[E], dict] = attr.ib()
+    decode: Callable[[dict], E] = attr.ib()
 
 
 def persist(
     id: str, empty_state, command_handler, event_handler, encode, decode
-) -> Persist:
+) -> Persist[S, C, E]:
     return Persist(
         id=id,
         empty_state=empty_state,
