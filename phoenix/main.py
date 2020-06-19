@@ -55,6 +55,7 @@ class Counter:
     @staticmethod
     def start(id: str) -> Behaviour:
         dispatch_namespace = {}
+
         @dispatch(int, Count, namespace=dispatch_namespace)
         async def command_handler(state: int, cmd: Count) -> effect.Effect:
             return effect.persist([Counted(n=cmd.n)])
@@ -207,11 +208,23 @@ class PingPong:
             # await counter.tell(Count(2))
             # await counter.tell(Count(3))
 
-            single = await context.spawn(singleton.Singleton.start(m(counter=Counter.start)))
-            await single.tell(singleton.Envelope(type_="counter", id="counter-0", msg=Count(2)))
-            await single.tell(singleton.Envelope(type_="counter", id="counter", msg=Count(2)))
+            single = await context.spawn(
+                singleton.Singleton.start(m(counter=Counter.start))
+            )
+            await single.tell(
+                singleton.Envelope(type_="counter", id="counter-0", msg=Count(2))
+            )
+            await single.tell(
+                singleton.Envelope(type_="counter", id="counter", msg=Count(2))
+            )
 
-            print(await single.ask(lambda reply_to: singleton.Envelope(type_="counter", id="counter", msg=GetCount(reply_to=reply_to))))
+            print(
+                await single.ask(
+                    lambda reply_to: singleton.Envelope(
+                        type_="counter", id="counter", msg=GetCount(reply_to=reply_to)
+                    )
+                )
+            )
 
             greeter = await context.spawn(Greeter.start("Hello"), "Greeter")
             await context.watch(greeter, PingPong.GreeterStopped())

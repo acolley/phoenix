@@ -78,7 +78,9 @@ class SystemState:
 # * User creates a system with the Actor under test.
 # * Send messages to system to observe behaviour.
 async def system(
-    user: Behaviour, default_dispatcher: Callable[[], Behaviour] = CoroDispatcher.start, db_url="sqlite:///db"
+    user: Behaviour,
+    default_dispatcher: Callable[[], Behaviour] = CoroDispatcher.start,
+    db_url="sqlite:///db",
 ):
     """
     System actor manages spawning and stopping actors.
@@ -95,6 +97,7 @@ async def system(
     def active(state: SystemState) -> Behaviour:
         async def f(msg):
             dispatch_namespace = {}
+
             @dispatch(SpawnActor, namespace=dispatch_namespace)
             async def handle(msg: SpawnActor):
                 dispatcher = state.dispatchers[msg.dispatcher or "default"]
@@ -338,8 +341,13 @@ async def system(
     root_task = asyncio.create_task(root_cell.run())
     registry_task = asyncio.create_task(registry_cell.run())
 
-    store_factory = lambda: SqlAlchemyStore(engine=create_engine(db_url, strategy=ASYNCIO_STRATEGY))
-    persister_pool = routers.pool(4, strategy=routers.ConsistentHashing(key_for=lambda msg: f"{msg.type_}-{msg.id}"))(persister.Persister.start(store_factory))
+    store_factory = lambda: SqlAlchemyStore(
+        engine=create_engine(db_url, strategy=ASYNCIO_STRATEGY)
+    )
+    persister_pool = routers.pool(
+        4,
+        strategy=routers.ConsistentHashing(key_for=lambda msg: f"{msg.type_}-{msg.id}"),
+    )(persister.Persister.start(store_factory))
     # TODO: persister only started when persistence first used.
     await system_ref.ask(
         lambda reply_to: SpawnActor(
@@ -361,6 +369,4 @@ async def system(
         )
     )
 
-    await asyncio.gather(
-        system_task, default_dispatcher_task, root_task, registry_task
-    )
+    await asyncio.gather(system_task, default_dispatcher_task, root_task, registry_task)
