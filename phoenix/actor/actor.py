@@ -170,6 +170,7 @@ class Actor:
 
         @dispatch(object, effect.Persist, int, namespace=dispatcher_namespace)
         async def execute_effect(state, eff: effect.Persist, offset: int):
+            logger.debug("[%s] Persisting events.", self.context.ref)
             events = [behaviour.encode(x) for x in eff.events]
             events = [
                 persister.Event(topic_id=topic_id, data=json.dumps(data))
@@ -190,7 +191,7 @@ class Actor:
 
         @dispatch(object, effect.Reply, int, namespace=dispatcher_namespace)
         async def execute_effect(state, eff: effect.Reply, offset: int):
-            await eff.reply_to.tell(eff.message)
+            await eff.reply_to.tell(eff.msg)
             return state, offset
 
         state = behaviour.empty_state
@@ -198,6 +199,7 @@ class Actor:
             lambda reply_to: persister.Load(reply_to=reply_to, id=behaviour.id)
         )
         if isinstance(reply, persister.Loaded):
+            logger.debug("[%s] Recovering from persisted events.", self.context.ref)
             for event in reply.events:
                 data = json.loads(event.data)
                 event = behaviour.decode(topic_id=event.topic_id, data=data)

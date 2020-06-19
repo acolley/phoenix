@@ -35,10 +35,16 @@ class Loaded:
     offset: int = attr.ib(validator=instance_of(int))
 
 
+@attr.s
+class NotFound:
+    pass
+
+
 class Persister:
     @staticmethod
-    def start(store) -> Behaviour:
+    def start(store_factory) -> Behaviour:
         async def f(context):
+            store = store_factory()
             await store.create_schema()
             await context.registry.tell(
                 registry.Register(key="persister", ref=context.ref)
@@ -62,7 +68,10 @@ class Persister:
         @dispatch(Load, namespace=dispatch_namespace)
         async def handle(msg: Load):
             (events, offset) = await store.load(entity_id=msg.id)
-            await msg.reply_to.tell(Loaded(events=events, offset=offset))
+            if events:
+                await msg.reply_to.tell(Loaded(events=events, offset=offset))
+            else:
+                await msg.reply_to.tell(NotFound())
             return behaviour.same()
 
         async def f(msg):

@@ -14,7 +14,7 @@ import traceback
 from typing import Any, Callable, Generic, Iterable, List, Mapping, Optional, TypeVar
 import uuid
 
-from phoenix import behaviour
+from phoenix import behaviour, routers
 from phoenix.actor import cell
 from phoenix.actor.actor import ActorContext
 from phoenix.actor.cell import ActorCell, BootstrapActorCell
@@ -78,7 +78,7 @@ class SystemState:
 # * User creates a system with the Actor under test.
 # * Send messages to system to observe behaviour.
 async def system(
-    user: Behaviour, default_dispatcher: Callable[[], Behaviour] = CoroDispatcher.start
+    user: Behaviour, default_dispatcher: Callable[[], Behaviour] = CoroDispatcher.start, db_url="sqlite:///db"
 ):
     """
     System actor manages spawning and stopping actors.
@@ -266,7 +266,7 @@ async def system(
                     context=context,
                     dispatchers=m(default=default_dispatcher),
                     actor_dispatcher=m(),
-                    actor_hierarchy=m().set(root, v()),
+                    actor_hierarchy=m().set(root, v()).set(context.ref, v()),
                     watchers=m(),
                 )
             )
@@ -282,9 +282,6 @@ async def system(
     )
     registry_ref = Ref(
         id="registry", inbox=janus.Queue(), thread=threading.current_thread()
-    )
-    persister_ref = Ref(
-        id="persister", inbox=janus.Queue(), thread=threading.current_thread()
     )
 
     # FIXME: What happens when the application is asked to shut down?
@@ -335,26 +332,24 @@ async def system(
             registry=None,
         ),
     )
-    store = SqlAlchemyStore(
-        engine=create_engine("sqlite:///db", strategy=ASYNCIO_STRATEGY)
-    )
-    persister_cell = BootstrapActorCell(
-        behaviour=persister.Persister.start(store),
-        context=ActorContext(
-            ref=persister_ref,
-            parent=system_ref,
-            thread=threading.current_thread(),
-            loop=asyncio.get_event_loop(),
-            system=system_ref,
-            registry=registry_ref,
-        ),
-    )
 
     system_task = asyncio.create_task(system_cell.run())
     default_dispatcher_task = asyncio.create_task(default_dispatcher_cell.run())
     root_task = asyncio.create_task(root_cell.run())
     registry_task = asyncio.create_task(registry_cell.run())
-    persister_task = asyncio.create_task(persister_cell.run())
+
+    store_factory = lambda: SqlAlchemyStore(engine=create_engine(db_url, strategy=ASYNCIO_STRATEGY))
+    persister_pool = routers.pool(4, strategy=routers.ConsistentHashing(key_for=lambda msg: f"{msg.type_}-{msg.id}"))(persister.Persister.start(store_factory))
+    # TODO: persister only started when persistence first used.
+    await system_ref.ask(
+        lambda reply_to: SpawnActor(
+            reply_to=reply_to,
+            id="persister",
+            behaviour=persister_pool,
+            dispatcher=None,
+            parent=system_ref,
+        )
+    )
 
     await system_ref.ask(
         lambda reply_to: SpawnActor(
@@ -367,5 +362,5 @@ async def system(
     )
 
     await asyncio.gather(
-        system_task, default_dispatcher_task, root_task, registry_task, persister_task
+        system_task, default_dispatcher_task, root_task, registry_task
     )

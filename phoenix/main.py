@@ -10,12 +10,12 @@ import importlib
 import logging
 from multipledispatch import dispatch
 from pathlib import Path
-from pyrsistent import PRecord, field
+from pyrsistent import m
 import random
 import traceback
 from typing import Any, Callable, Optional, Union
 
-from phoenix import behaviour, routers
+from phoenix import behaviour, routers, singleton
 from phoenix.behaviour import Behaviour
 from phoenix.persistence import effect
 from phoenix.ref import Ref
@@ -46,12 +46,22 @@ class Counted:
     n: int = attr.ib(validator=instance_of(int))
 
 
+@attr.s
+class GetCount:
+    reply_to: Ref = attr.ib(validator=instance_of(Ref))
+
+
 class Counter:
     @staticmethod
-    def start(id="counter") -> Behaviour:
+    def start(id: str) -> Behaviour:
+        dispatch_namespace = {}
+        @dispatch(int, Count, namespace=dispatch_namespace)
         async def command_handler(state: int, cmd: Count) -> effect.Effect:
-            print(state)
             return effect.persist([Counted(n=cmd.n)])
+
+        @dispatch(int, GetCount, namespace=dispatch_namespace)
+        async def command_handler(state: int, cmd: GetCount) -> effect.Effect:
+            return effect.reply(cmd.reply_to, state)
 
         async def event_handler(state: int, evt: Counted) -> int:
             return state + evt.n
@@ -193,9 +203,16 @@ class PingPong:
     @staticmethod
     def start() -> Behaviour:
         async def f(context):
-            counter = await context.spawn(Counter.start(), "Counter")
-            await counter.tell(Count(2))
-            await counter.tell(Count(3))
+            # counter = await context.spawn(Counter.start(), "Counter")
+            # await counter.tell(Count(2))
+            # await counter.tell(Count(3))
+
+            single = await context.spawn(singleton.Singleton.start(m(counter=Counter.start)))
+            await single.tell(singleton.Envelope(type_="counter", id="counter-0", msg=Count(2)))
+            await single.tell(singleton.Envelope(type_="counter", id="counter", msg=Count(2)))
+
+            print(await single.ask(lambda reply_to: singleton.Envelope(type_="counter", id="counter", msg=GetCount(reply_to=reply_to))))
+
             greeter = await context.spawn(Greeter.start("Hello"), "Greeter")
             await context.watch(greeter, PingPong.GreeterStopped())
             ping = await context.spawn(Ping.start(), "Ping")
