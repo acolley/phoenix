@@ -94,8 +94,9 @@ async def system(
 
     def active(state: SystemState) -> Behaviour:
         async def f(msg):
-            @dispatch(SpawnActor)
-            async def system_handle(msg: SpawnActor):
+            dispatch_namespace = {}
+            @dispatch(SpawnActor, namespace=dispatch_namespace)
+            async def handle(msg: SpawnActor):
                 dispatcher = state.dispatchers[msg.dispatcher or "default"]
                 if msg.parent not in state.actor_hierarchy:
                     raise ValueError(f"Parent actor `{msg.parent}` does not exist.")
@@ -124,8 +125,8 @@ async def system(
                     )
                 )
 
-            @dispatch(StopActor)
-            async def system_handle(msg: StopActor):
+            @dispatch(StopActor, namespace=dispatch_namespace)
+            async def handle(msg: StopActor):
                 # Stop all descendants recursively
                 refs = [msg.ref]
                 descendants = v()
@@ -179,8 +180,8 @@ async def system(
                     )
                 )
 
-            @dispatch(cell.ActorStopped)
-            async def system_handle(msg: cell.ActorStopped):
+            @dispatch(cell.ActorStopped, namespace=dispatch_namespace)
+            async def handle(msg: cell.ActorStopped):
                 # Stop all descendants recursively
                 refs = [msg.ref]
                 descendants = v()
@@ -242,8 +243,8 @@ async def system(
                     )
                 )
 
-            @dispatch(WatchActor)
-            async def system_handle(msg: WatchActor):
+            @dispatch(WatchActor, namespace=dispatch_namespace)
+            async def handle(msg: WatchActor):
                 await msg.reply_to.tell(Confirmation())
                 return active(
                     attr.evolve(
@@ -254,7 +255,7 @@ async def system(
                     )
                 )
 
-            return await system_handle(msg)
+            return await handle(msg)
 
         return behaviour.receive(f)
 
