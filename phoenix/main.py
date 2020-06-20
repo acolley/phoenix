@@ -1,4 +1,5 @@
 import abc
+from aiohttp import web
 import asyncio
 from asyncio import Queue, Task
 import attr
@@ -34,6 +35,44 @@ def decode(topic_id: str, data: dict) -> Any:
     # TODO: support nested classes
     klass = getattr(module, class_name)
     return cattr.structure(data, klass)
+
+
+@attr.s
+class HandleRequest:
+    reply_to = attr.ib()
+
+
+class Handler:
+    @staticmethod
+    def start() -> Behaviour:
+        async def recv(msg):
+            await msg.reply_to.tell("Hello World!")
+            return behaviour.same()
+        return behaviour.receive(recv)
+
+
+class Http:
+    @staticmethod
+    def start() -> Behaviour:
+        async def setup(context):
+            handler = await context.spawn(Handler.start())
+
+            async def hello(request):
+                message = await handler.ask(lambda reply_to: HandleRequest(reply_to=reply_to), timeout=10)
+                return web.Response(text=message)
+
+            app = web.Application()
+            app.add_routes([web.get("/", hello)])
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, "localhost", 8080)
+            await site.start()
+            # TODO: stop runner after actor stops
+            # await runner.cleanup()
+            async def cleanup():
+                await runner.cleanup()
+            return behaviour.ignore().with_on_stop(cleanup)
+        return behaviour.setup(setup)
 
 
 @attr.s
@@ -204,55 +243,54 @@ class PingPong:
     @staticmethod
     def start() -> Behaviour:
         async def f(context):
-            # counter = await context.spawn(Counter.start(), "Counter")
-            # await counter.tell(Count(2))
-            # await counter.tell(Count(3))
+            http = await context.spawn(Http.start())
 
-            single = await context.spawn(
-                singleton.Singleton.start(m(counter=Counter.start))
-            )
-            await single.tell(
-                singleton.Envelope(type_="counter", id="counter-0", msg=Count(2))
-            )
-            await single.tell(
-                singleton.Envelope(type_="counter", id="counter", msg=Count(2))
-            )
+            return behaviour.ignore()
 
-            print(
-                await single.ask(
-                    lambda reply_to: singleton.Envelope(
-                        type_="counter", id="counter", msg=GetCount(reply_to=reply_to)
-                    )
-                )
-            )
+            # single = await context.spawn(
+            #     singleton.Singleton.start(m(counter=Counter.start))
+            # )
+            # await single.tell(
+            #     singleton.Envelope(type_="counter", id="counter-0", msg=Count(2))
+            # )
+            # await single.tell(
+            #     singleton.Envelope(type_="counter", id="counter", msg=Count(2))
+            # )
 
-            greeter = await context.spawn(Greeter.start("Hello"), "Greeter")
-            await context.watch(greeter, PingPong.GreeterStopped())
-            ping = await context.spawn(Ping.start(), "Ping")
-            pong = await context.spawn(Pong.start(), "Pong")
-            await ping.tell(pong)
+            # print(
+            #     await single.ask(
+            #         lambda reply_to: singleton.Envelope(
+            #             type_="counter", id="counter", msg=GetCount(reply_to=reply_to)
+            #         )
+            #     )
+            # )
 
-            def worker() -> Behaviour:
-                async def f(message):
-                    await message.reply_to.tell(message.message)
-                    return behaviour.same()
+            # greeter = await context.spawn(Greeter.start("Hello"), "Greeter")
+            # await context.watch(greeter, PingPong.GreeterStopped())
+            # ping = await context.spawn(Ping.start(), "Ping")
+            # pong = await context.spawn(Pong.start(), "Pong")
+            # await ping.tell(pong)
 
-                return behaviour.receive(f)
+            # def worker() -> Behaviour:
+            #     async def f(message):
+            #         await message.reply_to.tell(message.message)
+            #         return behaviour.same()
 
-            router = routers.pool(
-                2, routers.ConsistentHashing(lambda msg: msg.message)
-            )(worker())
-            echo = await context.spawn(router, "Router")
-            replies = await asyncio.gather(
-                echo.ask(partial(EchoMsg, message="Echooooo")),
-                echo.ask(partial(EchoMsg, message="Meeeeeee")),
-            )
-            print(replies)
+            #     return behaviour.receive(f)
 
-            await context.stop(echo)
+            # router = routers.pool(
+            #     2, routers.ConsistentHashing(lambda msg: msg.message)
+            # )(worker())
+            # echo = await context.spawn(router, "Router")
+            # replies = await asyncio.gather(
+            #     echo.ask(partial(EchoMsg, message="Echooooo")),
+            #     echo.ask(partial(EchoMsg, message="Meeeeeee")),
+            # )
+            # print(replies)
 
-            return PingPong.active(context)
-            # return behaviour.ignore()
+            # await context.stop(echo)
+
+            # return PingPong.active(context)
 
         return behaviour.restart(behaviour.setup(f))
 

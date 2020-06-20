@@ -3,7 +3,7 @@ import attr
 from attr.validators import instance_of, optional
 from pyrsistent import v
 import threading
-from typing import Any, List, Optional
+from typing import Any, Awaitable, Callable, List, Optional
 import uuid
 
 from phoenix.behaviour import Behaviour
@@ -94,3 +94,13 @@ class ActorContext:
                 reply_to=reply_to, ref=ref, parent=self.ref, message=msg,
             )
         )
+    
+    async def pipe_to_self(self, awaitable: Awaitable, cb: Callable[[Any], Any]):
+        """
+        Send a message to self after the awaitable has finished.
+        """
+        async def pipe():
+            result = await awaitable
+            msg = cb(result)
+            await self.ref.tell(msg)
+        asyncio.create_task(pipe())
