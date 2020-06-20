@@ -21,7 +21,6 @@ from phoenix.behaviour import (
     Receive,
     Restart,
     Same,
-    Schedule,
     Setup,
     Stop,
 )
@@ -80,11 +79,10 @@ class Actor:
 
     start: Behaviour = attr.ib()
     context: ActorContext = attr.ib(validator=instance_of(ActorContext))
-    timers: Timers = attr.ib(validator=instance_of(Timers))
 
     @start.validator
     def check(self, attribute: str, value: Behaviour):
-        if not isinstance(value, (Ignore, Persist, Receive, Restart, Schedule, Setup)):
+        if not isinstance(value, (Ignore, Persist, Receive, Restart, Setup)):
             raise ValueError(f"Invalid start behaviour: {value}")
 
     async def run(self):
@@ -247,11 +245,6 @@ class Actor:
                     behaviours.append(current)
                 elif next_:
                     behaviours.append(next_)
-
-    @dispatch(Schedule)
-    async def execute(self, behaviour: Schedule):
-        logger.debug("[%s] Executing %s", self.context.ref, behaviour)
-        return await behaviour(self.timers)
 
     @dispatch(Stop)
     async def execute(self, behaviour: Stop):

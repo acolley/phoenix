@@ -9,6 +9,7 @@ import threading
 from phoenix import behaviour
 from phoenix.actor.cell import ActorCell
 from phoenix.actor.actor import ActorContext
+from phoenix.actor.timers import Timers
 from phoenix.behaviour import Behaviour
 from phoenix.ref import Ref
 
@@ -73,6 +74,7 @@ class Executor:
                         loop=asyncio.get_event_loop(),
                         system=context.system,
                         registry=context.registry,
+                        timers=Timers(ref=ref, lock=asyncio.Lock()),
                     ),
                 )
                 task = asyncio.create_task(cell.run())

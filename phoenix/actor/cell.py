@@ -38,19 +38,15 @@ class ActorCell:
     _task: Optional[asyncio.Task] = attr.ib(
         init=False, validator=optional(instance_of(asyncio.Task)), default=None
     )
-    _timers: Optional[Timers] = attr.ib(
-        init=False, validator=optional(instance_of(Timers)), default=None
-    )
 
     async def run(self):
         try:
-            self._timers = Timers(ref=self.context.ref, lock=asyncio.Lock())
             self._actor = actor.Actor(
-                start=self.behaviour, context=self.context, timers=self._timers
+                start=self.behaviour, context=self.context
             )
 
-            # asyncio.shield allows the task to continue after a first cancelled error
-            # this is because when the ActorCell task is cancelled it also cancels this task.
+            # asyncio.shield allows the task to continue after a first cancelled error.
+            # This is to prevent this task being cancelled when the ActorCell task is cancelled.
             self._task = asyncio.shield(asyncio.create_task(self._actor.run()))
 
             while True:
@@ -61,15 +57,14 @@ class ActorCell:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            await self._timers.cancel_all()
+            await self.context.timers.cancel_all()
 
     @dispatch(actor.ActorRestarted)
     async def handle(self, msg: actor.ActorRestarted):
         logger.debug("[%s] ActorCell ActorRestarted", self.context.ref)
-        await self._timers.cancel_all()
-        self._timers = Timers(ref=self.context.ref, lock=asyncio.Lock())
+        await self.context.timers.cancel_all()
         self._actor = actor.Actor(
-            start=msg.behaviour, context=self.context, timers=self._timers
+            start=msg.behaviour, context=self.context
         )
         self._task = asyncio.shield(asyncio.create_task(self._actor.run()))
 
@@ -109,8 +104,7 @@ class BootstrapActorCell:
     context: actor.ActorContext = attr.ib(validator=instance_of(actor.ActorContext))
 
     async def run(self):
-        timers = Timers(ref=self.context.ref, lock=asyncio.Lock())
-        act = actor.Actor(start=self.behaviour, context=self.context, timers=timers)
+        act = actor.Actor(start=self.behaviour, context=self.context)
 
         task = asyncio.create_task(act.run())
 

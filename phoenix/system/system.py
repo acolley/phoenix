@@ -18,6 +18,7 @@ from phoenix import behaviour, routers
 from phoenix.actor import cell
 from phoenix.actor.actor import ActorContext
 from phoenix.actor.cell import ActorCell, BootstrapActorCell
+from phoenix.actor.timers import Timers
 from phoenix.behaviour import Behaviour
 from phoenix.dispatchers import dispatcher as dispatchermsg
 from phoenix.dispatchers.coro import CoroDispatcher
@@ -299,6 +300,7 @@ async def system(
             loop=asyncio.get_event_loop(),
             system=system_ref,
             registry=registry_ref,
+            timers=Timers(ref=root_ref, lock=asyncio.Lock()),
         ),
     )
 
@@ -311,6 +313,7 @@ async def system(
             loop=asyncio.get_event_loop(),
             system=system_ref,
             registry=registry_ref,
+            timers=Timers(ref=default_dispatcher_ref, lock=asyncio.Lock()),
         ),
     )
     system_cell = BootstrapActorCell(
@@ -322,6 +325,7 @@ async def system(
             loop=asyncio.get_event_loop(),
             system=system_ref,  # self-reference
             registry=registry_ref,
+            timers=Timers(ref=system_ref, lock=asyncio.Lock()),
         ),
     )
     registry_cell = BootstrapActorCell(
@@ -333,6 +337,7 @@ async def system(
             loop=asyncio.get_event_loop(),
             system=system_ref,
             registry=None,
+            timers=Timers(ref=registry_ref, lock=asyncio.Lock()),
         ),
     )
 

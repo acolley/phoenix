@@ -10,6 +10,7 @@ from typing import Iterable, Mapping
 from phoenix import behaviour
 from phoenix.actor.actor import ActorContext
 from phoenix.actor.cell import BootstrapActorCell
+from phoenix.actor.timers import Timers
 from phoenix.behaviour import Behaviour
 from phoenix.dispatchers.dispatcher import (
     ActorRemoved,
@@ -114,6 +115,7 @@ class ThreadDispatcher:
                         loop=asyncio.get_event_loop(),
                         system=state.context.system,
                         registry=state.context.registry,
+                        timers=Timers(ref=ref, lock=asyncio.Lock()),
                     ),
                 )
                 task = asyncio.create_task(cell.run())

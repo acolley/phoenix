@@ -6,6 +6,7 @@ import threading
 from typing import Any, Awaitable, Callable, List, Optional
 import uuid
 
+from phoenix.actor.timers import Timers
 from phoenix.behaviour import Behaviour
 from phoenix.ref import Ref
 from phoenix.system import messages
@@ -41,6 +42,8 @@ class ActorContext:
     """
 
     registry: Optional[Ref] = attr.ib(validator=optional(instance_of(Ref)))
+
+    timers: Timers = attr.ib(validator=instance_of(Timers))
 
     children: List[Ref] = attr.ib(default=v())
 

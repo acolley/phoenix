@@ -58,23 +58,6 @@ def setup_decorator(f):
     return _setup
 
 
-@attr.s(frozen=True)
-class Schedule:
-    f = attr.ib()
-
-    @f.validator
-    def check(self, attribute: str, value):
-        if not inspect.iscoroutinefunction(value):
-            raise ValueError(f"Not a coroutine: {value}")
-
-    async def __call__(self, timers):
-        return await self.f(timers)
-
-
-def schedule(f) -> Schedule:
-    return Schedule(f)
-
-
 class Same:
     pass
 
@@ -107,7 +90,7 @@ class Restart:
     See Akka Behaviours.supervise for ideas.
     """
 
-    behaviour = attr.ib(validator=instance_of((Schedule, Setup, Receive, Same, Ignore)))
+    behaviour = attr.ib(validator=instance_of((Setup, Receive, Same, Ignore)))
     name: Optional[str] = attr.ib(validator=optional(instance_of(str)), default=None)
     max_restarts: Optional[int] = attr.ib(
         validator=optional(instance_of(int)), default=3
@@ -170,4 +153,4 @@ def persist(
     )
 
 
-Behaviour = Union[Schedule, Stop, Ignore, Setup, Persist, Receive, Same]
+Behaviour = Union[Stop, Ignore, Setup, Persist, Receive, Same]
