@@ -41,9 +41,7 @@ class ActorCell:
 
     async def run(self):
         try:
-            self._actor = actor.Actor(
-                start=self.behaviour, context=self.context
-            )
+            self._actor = actor.Actor(start=self.behaviour, context=self.context)
 
             # asyncio.shield allows the task to continue after a first cancelled error.
             # This is to prevent this task being cancelled when the ActorCell task is cancelled.
@@ -63,9 +61,7 @@ class ActorCell:
     async def handle(self, msg: actor.ActorRestarted):
         logger.debug("[%s] ActorCell ActorRestarted", self.context.ref)
         await self.context.timers.cancel_all()
-        self._actor = actor.Actor(
-            start=msg.behaviour, context=self.context
-        )
+        self._actor = actor.Actor(start=msg.behaviour, context=self.context)
         self._task = asyncio.shield(asyncio.create_task(self._actor.run()))
 
     @dispatch(actor.ActorKilled)

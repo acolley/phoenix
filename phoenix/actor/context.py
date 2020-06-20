@@ -97,13 +97,15 @@ class ActorContext:
                 reply_to=reply_to, ref=ref, parent=self.ref, message=msg,
             )
         )
-    
+
     async def pipe_to_self(self, awaitable: Awaitable, cb: Callable[[Any], Any]):
         """
         Send a message to self after the awaitable has finished.
         """
+
         async def pipe():
             result = await awaitable
             msg = cb(result)
             await self.ref.tell(msg)
+
         asyncio.create_task(pipe())

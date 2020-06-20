@@ -48,6 +48,7 @@ class Handler:
         async def recv(msg):
             await msg.reply_to.tell("Hello World!")
             return behaviour.same()
+
         return behaviour.receive(recv)
 
 
@@ -58,7 +59,9 @@ class Http:
             handler = await context.spawn(Handler.start())
 
             async def hello(request):
-                message = await handler.ask(lambda reply_to: HandleRequest(reply_to=reply_to), timeout=10)
+                message = await handler.ask(
+                    lambda reply_to: HandleRequest(reply_to=reply_to), timeout=10
+                )
                 return web.Response(text=message)
 
             app = web.Application()
@@ -71,7 +74,9 @@ class Http:
             # await runner.cleanup()
             async def cleanup():
                 await runner.cleanup()
+
             return behaviour.ignore()
+
         return behaviour.setup(setup)
 
 
@@ -164,7 +169,9 @@ class Greeter:
     @staticmethod
     def init(greeting: str, count: int) -> Behaviour:
         async def f(context):
-            await context.timers.start_fixed_rate_timer(Greeter.Timeout(), timedelta(seconds=1))
+            await context.timers.start_fixed_rate_timer(
+                Greeter.Timeout(), timedelta(seconds=1)
+            )
             return Greeter.active(greeting, count)
 
         return behaviour.restart(behaviour.setup(f)).with_backoff(
@@ -243,7 +250,7 @@ class PingPong:
     @staticmethod
     def start() -> Behaviour:
         async def f(context):
-            # http = await context.spawn(Http.start())
+            http = await context.spawn(Http.start())
 
             # return behaviour.ignore()
 
