@@ -4,7 +4,7 @@ from attr.validators import instance_of
 import json
 import logging
 from multipledispatch import dispatch
-from typing import Callable, Coroutine, Generic, TypeVar
+from typing import Callable, Coroutine, Generic, Optional, TypeVar
 
 from phoenix import registry
 from phoenix.persistence import effect, persister
@@ -25,6 +25,10 @@ class Persist(Generic[S, C, E]):
     event_handler: Callable[[S, E], Coroutine[S, None, None]] = attr.ib()
     encode: Callable[[E], dict] = attr.ib()
     decode: Callable[[dict], E] = attr.ib()
+    on_lifecycle: Optional[Callable] = attr.ib(default=None)
+
+    def with_on_lifecycle(self, on_lifecycle: Callable):
+        return attr.evolve(self, on_lifecycle=on_lifecycle)
 
     async def execute(self, context):
         logger.debug("[%s] Executing %s", context.ref, self.__class__.__name__)

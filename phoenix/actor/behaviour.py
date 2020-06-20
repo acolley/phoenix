@@ -1,3 +1,7 @@
+"""
+Implementation of standard behaviours.
+"""
+
 import asyncio
 import attr
 from attr.validators import instance_of, optional
@@ -5,7 +9,7 @@ import inspect
 import logging
 from typing import Any, Callable, Coroutine, Dict, Generic, Optional, TypeVar, Union
 
-from phoenix.actor.lifecycle import RestartActor, StopActor
+from phoenix.actor.lifecycle import PostStop, PreRestart, RestartActor, StopActor
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +20,15 @@ logger = logging.getLogger(__name__)
 class Receive:
 
     f = attr.ib()
+    on_lifecycle: Optional[Callable] = attr.ib(default=None)
 
     @f.validator
     def check(self, attribute: str, value):
         if not inspect.iscoroutinefunction(value):
             raise ValueError(f"Not a coroutine: {value}")
+
+    def with_on_lifecycle(self, on_lifecycle: Callable):
+        return attr.evolve(self, on_lifecycle=on_lifecycle)
 
     async def execute(self, context):
         logger.debug("[%s] Executing %s", context.ref, self.__class__.__name__)
@@ -37,11 +45,15 @@ class Receive:
 class Setup:
 
     f = attr.ib()
+    on_lifecycle: Optional[Callable] = attr.ib(default=None)
 
     @f.validator
     def check(self, attribute: str, value):
         if not inspect.iscoroutinefunction(value):
             raise ValueError(f"Not a coroutine: {value}")
+
+    def with_on_lifecycle(self, on_lifecycle: Callable):
+        return attr.evolve(self, on_lifecycle=on_lifecycle)
 
     async def execute(self, context):
         logger.debug("[%s] Executing %s", context.ref, self.__class__.__name__)
@@ -53,7 +65,13 @@ class Same:
     pass
 
 
+@attr.s
 class Ignore:
+    on_lifecycle: Optional[Callable] = attr.ib(default=None)
+
+    def with_on_lifecycle(self, on_lifecycle: Callable):
+        return attr.evolve(self, on_lifecycle=on_lifecycle)
+
     async def execute(self, context):
         logger.debug("[%s] Executing %s", context.ref, self.__class__.__name__)
         await context.ref.inbox.async_q.get()
@@ -61,7 +79,13 @@ class Ignore:
         return Same()
 
 
+@attr.s
 class Stop:
+    on_lifecycle: Optional[Callable] = attr.ib()
+
+    def with_on_lifecycle(self, on_lifecycle: Callable):
+        return attr.evolve(self, on_lifecycle=on_lifecycle)
+
     async def execute(self, context):
         logger.debug("[%s] Executing %s", context.ref, self.__class__.__name__)
         raise StopActor
@@ -82,6 +106,7 @@ class Restart:
     )
     restarts: int = attr.ib(validator=instance_of(int), default=0)
     backoff: Callable[[int], Union[float, int]] = attr.ib(default=None)
+    on_lifecycle: Optional[Callable] = attr.ib(default=None)
 
     @max_restarts.validator
     def check(self, attribute: str, value: Optional[int]):
@@ -92,6 +117,9 @@ class Restart:
     def check(self, attribute: str, value: int):
         if self.max_restarts is not None and self.restarts > self.max_restarts:
             raise ValueError("restarts cannot be greater than max_restarts")
+
+    def with_on_lifecycle(self, on_lifecycle: Callable):
+        return attr.evolve(self, on_lifecycle=on_lifecycle)
 
     def with_max_restarts(self, max_restarts: Optional[int]) -> "Restarts":
         return attr.evolve(self, max_restarts=max_restarts)
@@ -108,6 +136,10 @@ class Restart:
     async def execute(self, context):
         logger.debug("[%s] Executing %s", context.ref, self.__class__.__name__)
 
+        # FIXME Given this behaviour and phoenix.actor.Actor both
+        # deal with lifecycle callbacks it's possible that lifecycles
+        # will be handled twice.
+
         behaviours = [self.behaviour]
         while behaviours:
             logger.debug("[%s] Restart: %s", context.ref, behaviours)
@@ -115,11 +147,17 @@ class Restart:
             try:
                 next_ = await current.execute(context)
             except StopActor:
+                if current.on_lifecycle:
+                    await current.on_lifecycle(PostStop())
                 raise
             except asyncio.CancelledError:
+                if current.on_lifecycle:
+                    await current.on_lifecycle(PostStop())
                 raise
             except Exception:
                 if self.restarts >= self.max_restarts:
+                    if current.on_lifecycle:
+                        await current.on_lifecycle(PostStop())
                     raise
 
                 logger.debug("Restart behaviour caught exception", exc_info=True)
@@ -127,7 +165,14 @@ class Restart:
                 if self.backoff:
                     await asyncio.sleep(self.backoff(self.restarts))
 
-                raise RestartActor(attr.evolve(self, restarts=self.restarts + 1))
+                if current.on_lifecycle:
+                    behaviour = await current.on_lifecycle(PreRestart())
+                    if isinstance(behaviour, Same):
+                        behaviour = attr.evolve(self, restarts=self.restarts + 1)
+                else:
+                    behaviour = attr.evolve(self, restarts=self.restarts + 1)
+
+                raise RestartActor(behaviour=behaviour)
             else:
                 if isinstance(next_, Same):
                     behaviours.append(current)

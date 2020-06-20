@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 
 from phoenix.actor.context import ActorContext
-from phoenix.actor.lifecycle import RestartActor, StopActor
+from phoenix.actor.lifecycle import PreRestart, PostStop, RestartActor, StopActor
 from phoenix.actor.timers import Timers
 from phoenix.behaviour import (
     Behaviour,
@@ -89,14 +89,25 @@ class Actor:
                 elif next_:
                     behaviours.append(next_)
         except RestartActor as e:
-            return ActorRestarted(ref=self.context.ref, behaviour=e.behaviour)
+            if current.on_lifecycle:
+                behaviour = await current.on_lifecycle(PreRestart())
+                if isinstance(behaviour, Same):
+                    behaviour = e.behaviour
+            else:
+                behaviour = e.behaviour
+            return ActorRestarted(ref=self.context.ref, behaviour=behaviour)
         except StopActor:
+            if current.on_lifecycle:
+                await current.on_lifecycle(PostStop())
             return ActorStopped(ref=self.context.ref)
         except asyncio.CancelledError:
+            if current.on_lifecycle:
+                await current.on_lifecycle(PostStop())
             # We were deliberately cancelled.
-            # TODO: Allow the actor to perform cleanup.
             return ActorKilled(ref=self.context.ref)
         except Exception as e:
+            if current.on_lifecycle:
+                await current.on_lifecycle(PostStop())
             logger.warning(
                 "[%s] Behaviour raised unhandled exception",
                 self.context.ref,

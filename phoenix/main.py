@@ -54,7 +54,7 @@ class Handler:
 
 class Http:
     @staticmethod
-    def start() -> Behaviour:
+    def start(host: str, port: int) -> Behaviour:
         async def setup(context):
             handler = await context.spawn(Handler.start())
 
@@ -68,14 +68,15 @@ class Http:
             app.add_routes([web.get("/", hello)])
             runner = web.AppRunner(app)
             await runner.setup()
-            site = web.TCPSite(runner, "localhost", 8080)
+            site = web.TCPSite(runner, host, port)
             await site.start()
-            # TODO: stop runner after actor stops
-            # await runner.cleanup()
-            async def cleanup():
-                await runner.cleanup()
 
-            return behaviour.ignore()
+            async def cleanup(evt):
+                print("Kill the server!!")
+                await runner.cleanup()
+                return behaviour.same()
+
+            return behaviour.ignore().with_on_lifecycle(cleanup)
 
         return behaviour.setup(setup)
 
@@ -250,7 +251,7 @@ class PingPong:
     @staticmethod
     def start() -> Behaviour:
         async def f(context):
-            http = await context.spawn(Http.start())
+            http = await context.spawn(Http.start("localhost", 8080))
 
             # return behaviour.ignore()
 
