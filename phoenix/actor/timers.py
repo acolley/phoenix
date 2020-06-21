@@ -17,11 +17,22 @@ class Timers:
     _timers = attr.ib(init=False, default=m())
 
     async def start_fixed_rate_timer(
-        self, message: Any, interval: timedelta, name: Optional[str] = None
+        self, message: Any, interval: timedelta, name: Optional[str] = None, initial_delay: Optional[timedelta] = None
     ):
+        """
+        Args:
+            message (Any): The message to be sent on timer timeout.
+            interval (timedelta): The time interval between timer timeouts.
+            name (Optional[str]): Identifier for this timer for later modification.
+            initial_delay (Optional[timedelta]): An optional initial delay that differs
+                from the interval.
+        """
         name = name or str(uuid.uuid1())
 
         async def _fixed_rate_timer():
+            if initial_delay is not None:
+                await asyncio.sleep(initial_delay.total_seconds())
+                await self.ref.tell(message)
             while True:
                 await asyncio.sleep(interval.total_seconds())
                 await self.ref.tell(message)

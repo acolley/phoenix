@@ -8,6 +8,7 @@ import uuid
 
 from phoenix.actor.timers import Timers
 from phoenix.behaviour import Behaviour
+from phoenix.result import Failure, Success
 from phoenix.ref import Ref
 from phoenix.system import messages
 
@@ -104,7 +105,12 @@ class ActorContext:
         """
 
         async def pipe():
-            result = await awaitable()
+            try:
+                result = await awaitable()
+            except Exception as e:
+                result = Failure(e)
+            else:
+                result = Success(result)
             msg = cb(result)
             await self.ref.tell(msg)
 

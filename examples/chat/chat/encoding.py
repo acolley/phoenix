@@ -3,7 +3,9 @@ from datetime import datetime
 import importlib
 from typing import Any
 
-cattr.register_structure_hook(datetime, lambda d, t: datetime.strptime(d, "%Y-%m-%dT%H:%M:%S.%f%z"))
+cattr.register_structure_hook(
+    datetime, lambda d, t: datetime.strptime(d, "%Y-%m-%dT%H:%M:%S.%f%z")
+)
 cattr.register_unstructure_hook(datetime, lambda d: d.isoformat())
 
 

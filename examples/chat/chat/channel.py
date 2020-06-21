@@ -46,7 +46,7 @@ class Deleted:
 
 
 @attr.s(frozen=True)
-class Said:
+class MessageCreated:
     at: datetime = attr.ib(validator=instance_of(datetime))
     by: str = attr.ib(validator=instance_of(str))
     text: str = attr.ib(validator=instance_of(str))
@@ -100,9 +100,9 @@ class Channel:
         @dispatch(State, Say, namespace=dispatch_namespace)
         async def handle_command(state: State, cmd: Say) -> effect.Effect:
             return effect.persist(
-                [Said(at=cmd.at, by=cmd.by, text=cmd.text)]
+                [MessageCreated(at=cmd.at, by=cmd.by, text=cmd.text)]
             ).then_reply(reply_to=cmd.reply_to, msg=Confirmation())
-        
+
         @dispatch(State, ListMessages, namespace=dispatch_namespace)
         async def handle_command(state: State, cmd: ListMessages) -> effect.Effect:
             return effect.reply(reply_to=cmd.reply_to, msg=Messages(state.messages))
@@ -115,8 +115,8 @@ class Channel:
         async def handle_event(state: State, evt: Deleted) -> Optional[State]:
             return None
 
-        @dispatch(State, Said, namespace=dispatch_namespace)
-        async def handle_event(state: State, evt: Said) -> Optional[State]:
+        @dispatch(State, MessageCreated, namespace=dispatch_namespace)
+        async def handle_event(state: State, evt: MessageCreated) -> Optional[State]:
             return attr.evolve(
                 state,
                 messages=state.messages.append(
