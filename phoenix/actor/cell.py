@@ -88,6 +88,14 @@ class ActorCell:
 
         raise Stop
 
+    @dispatch(actor.ActorStopped)
+    async def handle(self, msg: actor.ActorStopped):
+        logger.debug("[%s] ActorCell ActorFailed", self.context.ref)
+
+        await self.context.system.tell(ActorStopped(ref=self.context.ref))
+
+        raise Stop
+
 
 @attr.s
 class BootstrapActorCell:

@@ -81,7 +81,7 @@ class Ignore:
 
 @attr.s
 class Stop:
-    on_lifecycle: Optional[Callable] = attr.ib()
+    on_lifecycle: Optional[Callable] = attr.ib(default=None)
 
     def with_on_lifecycle(self, on_lifecycle: Callable):
         return attr.evolve(self, on_lifecycle=on_lifecycle)
@@ -99,7 +99,7 @@ class Restart:
     See Akka Behaviours.supervise for ideas.
     """
 
-    behaviour = attr.ib(validator=instance_of((Setup, Receive, Same, Ignore)))
+    behaviour = attr.ib()
     name: Optional[str] = attr.ib(validator=optional(instance_of(str)), default=None)
     max_restarts: Optional[int] = attr.ib(
         validator=optional(instance_of(int)), default=3

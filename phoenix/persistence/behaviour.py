@@ -59,8 +59,13 @@ class Persist(Generic[S, C, E]):
                     reply_to=reply_to, id=self.id, events=events, offset=offset
                 )
             )
+
+            if eff.reply:
+                await execute_effect(state, eff.reply, offset)
+                
             for event in eff.events:
                 state = await self.event_handler(state, event)
+
             return state, reply.offset + 1
 
         @dispatch(object, effect.NoEffect, int, namespace=dispatcher_namespace)

@@ -6,7 +6,7 @@ from datetime import timedelta
 import janus
 import logging
 from multipledispatch import dispatch
-from pyrsistent import m, v
+from pyrsistent import PVector, m, v
 from sqlalchemy import create_engine
 from sqlalchemy_aio import ASYNCIO_STRATEGY
 import threading
@@ -53,6 +53,14 @@ class SystemState:
             key_validator=instance_of(str), value_validator=instance_of(Ref)
         )
     )
+
+    stopped: Iterable[Ref] = attr.ib(validator=deep_iterable(member_validator=instance_of(Ref), iterable_validator=instance_of(PVector)))
+    """
+    Collection of stopped actors for the purposes of
+    notifying watchers if their watch request is made
+    after the actor has already stopped.
+    """
+
     watchers: Mapping[Ref, Watcher] = attr.ib(
         validator=deep_mapping(
             key_validator=instance_of(Ref), value_validator=instance_of(Watcher)
@@ -131,6 +139,7 @@ async def system(
 
             @dispatch(StopActor, namespace=dispatch_namespace)
             async def handle(msg: StopActor):
+                # TODO: drain messages from mailboxes
                 # Stop all descendants recursively
                 refs = [msg.ref]
                 descendants = v()
@@ -172,6 +181,11 @@ async def system(
                 # be their already-killed parents.
                 if watcher:
                     await watcher.ref.tell(watcher.msg)
+                
+                # Only store top-level actor here as descendants
+                # cannot watch for stopped actors if they themselves
+                # have been stopped.
+                stopped = state.stopped.append(msg.ref)
 
                 await msg.reply_to.tell(ActorStopped(ref=msg.ref))
 
@@ -180,12 +194,14 @@ async def system(
                         state,
                         actor_dispatcher=actor_dispatcher,
                         actor_hierarchy=actor_hierarchy,
+                        stopped=stopped,
                         watchers=watchers,
                     )
                 )
 
             @dispatch(cell.ActorStopped, namespace=dispatch_namespace)
             async def handle(msg: cell.ActorStopped):
+                # TODO: drain messages from mailboxes
                 # Stop all descendants recursively
                 refs = [msg.ref]
                 descendants = v()
@@ -235,6 +251,11 @@ async def system(
                 # can only be their already-killed parents.
                 if watcher:
                     await watcher.ref.tell(watcher.msg)
+                
+                # Only store top-level actor here as descendants
+                # cannot watch for stopped actors if they themselves
+                # have been stopped.
+                stopped = state.stopped.append(msg.ref)
 
                 # ActorStopped messages do not expect replies.
 
@@ -243,6 +264,7 @@ async def system(
                         state,
                         actor_dispatcher=actor_dispatcher,
                         actor_hierarchy=actor_hierarchy,
+                        stopped=stopped,
                         watchers=watchers,
                     )
                 )
@@ -250,14 +272,18 @@ async def system(
             @dispatch(WatchActor, namespace=dispatch_namespace)
             async def handle(msg: WatchActor):
                 await msg.reply_to.tell(Confirmation())
-                return active(
-                    attr.evolve(
-                        state,
-                        watchers=state.watchers.set(
-                            msg.ref, Watcher(ref=msg.parent, msg=msg.message)
-                        ),
+                if msg.ref in state.stopped:
+                    await msg.parent.tell(msg.message)
+                    return behaviour.same()
+                else:
+                    return active(
+                        attr.evolve(
+                            state,
+                            watchers=state.watchers.set(
+                                msg.ref, Watcher(ref=msg.parent, msg=msg.message)
+                            ),
+                        )
                     )
-                )
 
             return await handle(msg)
 
@@ -271,6 +297,7 @@ async def system(
                     dispatchers=m(default=default_dispatcher),
                     actor_dispatcher=m(),
                     actor_hierarchy=m().set(root, v()).set(context.ref, v()),
+                    stopped=v(),
                     watchers=m(),
                 )
             )

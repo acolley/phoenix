@@ -104,7 +104,7 @@ class ActorContext:
         """
 
         async def pipe():
-            result = await awaitable
+            result = await awaitable()
             msg = cb(result)
             await self.ref.tell(msg)
 

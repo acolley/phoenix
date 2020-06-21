@@ -2,6 +2,7 @@ import abc
 import asyncio
 import attr
 from attr.validators import instance_of, optional
+from datetime import timedelta
 import janus
 import logging
 import threading
@@ -31,7 +32,7 @@ class Ref:
             await self.inbox.async_q.put(message)
 
     async def ask(
-        self, f: Callable[["Ref"], Any], timeout: Optional[Union[float, int]] = None
+        self, f: Callable[["Ref"], Any], timeout: Optional[timedelta] = None
     ) -> Any:
         """
         """
@@ -45,7 +46,7 @@ class Ref:
             await self.tell(msg)
             return await reply_to.inbox.async_q.get()
 
-        return await asyncio.wait_for(interact(), timeout=timeout)
+        return await asyncio.wait_for(interact(), timeout=timeout.total_seconds() if timeout else None)
 
     def __repr__(self) -> str:
         return f"Ref(id={repr(self.id)})"
