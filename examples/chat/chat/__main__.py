@@ -5,6 +5,7 @@ import attr
 from attr.validators import instance_of
 import cattr
 from datetime import datetime, timedelta
+from functools import partial
 import logging
 from multipledispatch import dispatch
 from phoenix import behaviour, singleton
@@ -34,6 +35,11 @@ class WebSocketMessageReceived:
 @attr.s
 class Timeout:
     pass
+
+
+@attr.s
+class EventsLoaded:
+    result = attr.ib()
 
 
 @attr.s(frozen=True)
@@ -78,11 +84,22 @@ class MessageSubscriber:
 
             @dispatch(Timeout, namespace=dispatch_namespace)
             async def handle(msg: Timeout):
+                await context.pipe_to_self(
+                    partial(journal.load, offset=offset),
+                    EventsLoaded,
+                )
+                return behaviour.same()
+            
+            @dispatch(EventsLoaded, namespace=dispatch_namespace)
+            async def handle(msg: EventsLoaded):
+                if isinstance(msg.result, Failure):
+                    logger.error(str(msg.result.value))
+                    return behaviour.stop()
+
                 nonlocal offset
-                events = await journal.load(offset=offset)
                 events = [
                     event
-                    for event in events
+                    for event in msg.result.value
                     if event.entity_id == channel_id
                     and isinstance(event.event, channel.MessageCreated)
                 ]
@@ -188,8 +205,8 @@ class Api:
                 )
 
                 # We can't return from this function until
-                # the request has been finished (i.e. closed) otherwise
-                # aiohttp will close our connection as it thinks it is done.
+                # the request has been finished (i.e. the websocket is closed)
+                #  otherwise aiohttp will close our connection as it thinks it is done.
                 # Therefore we create an event that is set from the Api
                 # actor when it receives the SubscriberFinished message after
                 # the MessageSubscriber actor has stopped.
@@ -222,7 +239,7 @@ class Api:
                 await runner.cleanup()
                 return behaviour.same()
 
-            async def recv(msg):
+            async def recv(msg: SubscriberFinished):
                 event = msg.event
                 event.set()
                 return behaviour.same()
