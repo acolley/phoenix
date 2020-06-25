@@ -54,7 +54,11 @@ class SystemState:
         )
     )
 
-    stopped: Iterable[Ref] = attr.ib(validator=deep_iterable(member_validator=instance_of(Ref), iterable_validator=instance_of(PVector)))
+    stopped: Iterable[Ref] = attr.ib(
+        validator=deep_iterable(
+            member_validator=instance_of(Ref), iterable_validator=instance_of(PVector)
+        )
+    )
     """
     Collection of stopped actors for the purposes of
     notifying watchers if their watch request is made
@@ -181,7 +185,7 @@ async def system(
                 # be their already-killed parents.
                 if watcher:
                     await watcher.ref.tell(watcher.msg)
-                
+
                 # Only store top-level actor here as descendants
                 # cannot watch for stopped actors if they themselves
                 # have been stopped.
@@ -251,7 +255,7 @@ async def system(
                 # can only be their already-killed parents.
                 if watcher:
                     await watcher.ref.tell(watcher.msg)
-                
+
                 # Only store top-level actor here as descendants
                 # cannot watch for stopped actors if they themselves
                 # have been stopped.

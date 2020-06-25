@@ -18,7 +18,9 @@ def reply(reply_to: Ref, msg: Any) -> Reply:
 @attr.s(frozen=True)
 class Persist:
     events: Iterable[Any] = attr.ib()
-    reply: Optional[Reply] = attr.ib(validator=optional(instance_of(Reply)), default=None)
+    reply: Optional[Reply] = attr.ib(
+        validator=optional(instance_of(Reply)), default=None
+    )
 
     def then_reply(self, reply_to: Ref, msg: Any) -> "Persist":
         return attr.evolve(self, reply=Reply(reply_to, msg))

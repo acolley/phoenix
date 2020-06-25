@@ -17,7 +17,11 @@ class Timers:
     _timers = attr.ib(init=False, default=m())
 
     async def start_fixed_rate_timer(
-        self, message: Any, interval: timedelta, name: Optional[str] = None, initial_delay: Optional[timedelta] = None
+        self,
+        message: Any,
+        interval: timedelta,
+        name: Optional[str] = None,
+        initial_delay: Optional[timedelta] = None,
     ):
         """
         Args:

@@ -46,7 +46,9 @@ class Ref:
             await self.tell(msg)
             return await reply_to.inbox.async_q.get()
 
-        return await asyncio.wait_for(interact(), timeout=timeout.total_seconds() if timeout else None)
+        return await asyncio.wait_for(
+            interact(), timeout=timeout.total_seconds() if timeout else None
+        )
 
     def __repr__(self) -> str:
         return f"Ref(id={repr(self.id)})"

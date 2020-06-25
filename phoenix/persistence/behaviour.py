@@ -62,7 +62,7 @@ class Persist(Generic[S, C, E]):
 
             if eff.reply:
                 await execute_effect(state, eff.reply, offset)
-                
+
             for event in eff.events:
                 state = await self.event_handler(state, event)
 
