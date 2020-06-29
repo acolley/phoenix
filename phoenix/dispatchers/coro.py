@@ -38,7 +38,12 @@ class CoroDispatcher:
 
         @dispatch(SpawnActor, namespace=dispatch_namespace)
         async def coro_dispatcher_handle(msg: SpawnActor):
-            ref = Ref(id=msg.id, inbox=janus.Queue(), thread=threading.current_thread())
+            ref = Ref(
+                id=msg.id,
+                path=msg.parent.path / msg.id,
+                inbox=janus.Queue(),
+                thread=threading.current_thread(),
+            )
             cell = ActorCell(
                 behaviour=msg.behaviour,
                 context=ActorContext(

@@ -9,18 +9,18 @@ import uuid
 from phoenix.actor.timers import Timers
 from phoenix.behaviour import Behaviour
 from phoenix.result import Failure, Success
-from phoenix.ref import Ref
+from phoenix.ref import LocalRef
 from phoenix.system import messages
 
 
 @attr.s
 class ActorContext:
-    ref: Ref = attr.ib(validator=instance_of(Ref))
+    ref: LocalRef = attr.ib(validator=instance_of(LocalRef))
     """
-    The Ref of this Actor.
+    The ref of this Actor.
     """
 
-    parent: Optional[Ref] = attr.ib(validator=optional(instance_of(Ref)))
+    parent: Optional[LocalRef] = attr.ib(validator=optional(instance_of(LocalRef)))
     """
     The parent of this Actor.
     """
@@ -37,16 +37,18 @@ class ActorContext:
     The event loop that is executing this Actor.
     """
 
-    system: Ref = attr.ib(validator=instance_of(Ref))
+    system: LocalRef = attr.ib(validator=instance_of(LocalRef))
     """
     The system that this Actor belongs to.
     """
 
-    registry: Optional[Ref] = attr.ib(validator=optional(instance_of(Ref)))
+    remote: LocalRef = attr.ib(validator=instance_of(LocalRef))
+
+    registry: Optional[LocalRef] = attr.ib(validator=optional(instance_of(LocalRef)))
 
     timers: Timers = attr.ib(validator=instance_of(Timers))
 
-    children: List[Ref] = attr.ib(default=v())
+    children: List[LocalRef] = attr.ib(default=v())
 
     @thread.validator
     def check(self, attribute: str, value: threading.Thread):
@@ -54,7 +56,7 @@ class ActorContext:
             raise ValueError("thread must be the same as ref.thread")
 
     @ref.validator
-    def check(self, attribute: str, value: Ref):
+    def check(self, attribute: str, value: LocalRef):
         if value.thread is not self.thread:
             raise ValueError("ref.thread must be the same as thread")
 
@@ -63,7 +65,7 @@ class ActorContext:
         behaviour: Behaviour,
         id: Optional[str] = None,
         dispatcher: Optional[str] = None,
-    ) -> Ref:
+    ) -> LocalRef:
         id = id or str(uuid.uuid1())
         response = await self.system.ask(
             lambda reply_to: messages.SpawnActor(
@@ -77,7 +79,7 @@ class ActorContext:
         self.children = self.children.append(response.ref)
         return response.ref
 
-    async def stop(self, ref: Ref):
+    async def stop(self, ref: LocalRef):
         # Stop a child actor
         try:
             self.children = self.children.remove(ref)
@@ -88,7 +90,7 @@ class ActorContext:
             lambda reply_to: messages.StopActor(reply_to=reply_to, ref=ref)
         )
 
-    async def watch(self, ref: Ref, msg: Any):
+    async def watch(self, ref: LocalRef, msg: Any):
         # Watch a child actor
         if ref not in self.children:
             raise ValueError(f"Must be a child of this actor: `{ref}`")
@@ -115,3 +117,10 @@ class ActorContext:
             await self.ref.tell(msg)
 
         asyncio.create_task(pipe())
+
+    async def select(self, url: str) -> ActorSelection:
+        """
+        Select actors using a relative or absolute URL.
+        """
+
+        return ActorSelection(anchor=self.ref, url=url)

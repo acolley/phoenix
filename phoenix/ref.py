@@ -9,17 +9,44 @@ import threading
 from typing import Any, Callable, Optional, Union
 import uuid
 
+from phoenix.path import ActorPath
+
 logger = logging.getLogger(__name__)
 
 
+class ActorRef(abc.ABC):
+    @abc.abstractproperty
+    def id(self) -> str:
+        raise NotImplementedError
+
+    @abc.abstractproperty
+    def path(self) -> ActorPath:
+        raise NotImplementedError
+
+    @abc.abstractproperty
+    def remote(self) -> "LocalRef":
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def tell(self, message: Any):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def ask(
+        self, f: Callable[["ActorRef"], Any], timeout: Optional[timedelta] = None
+    ) -> Any:
+        raise NotImplementedError
+
+
 @attr.s(frozen=True, repr=False)
-class Ref:
+class LocalRef(ActorRef):
     # For internal purposes an actor is simply a product of
-    # a unique identifier, thread/asyncio-safe queue and the
+    # a unique identifier, path, thread/asyncio-safe queue and the
     # thread that it is running on.
     # This allows us to bootstrap an actor outside of the
     # public interface.
     id: str = attr.ib(validator=instance_of(str))
+    path: ActorPath = attr.ib(validator=instance_of(ActorPath))
     inbox: janus.Queue = attr.ib(validator=instance_of(janus.Queue))
     thread: threading.Thread = attr.ib(validator=instance_of(threading.Thread),)
 
@@ -37,8 +64,12 @@ class Ref:
         """
         """
         # Create a fake actor ref for the destination to reply to.
-        reply_to = Ref(
-            id=str(uuid.uuid1()), inbox=janus.Queue(), thread=threading.current_thread()
+        actor_id = str(uuid.uuid1())
+        reply_to = LocalRef(
+            id=actor_id,
+            path=ActorPath(self.path.address) / "temp" / actor_id,
+            inbox=janus.Queue(),
+            thread=threading.current_thread(),
         )
         msg = f(reply_to)
 
@@ -46,9 +77,10 @@ class Ref:
             await self.tell(msg)
             return await reply_to.inbox.async_q.get()
 
-        return await asyncio.wait_for(
-            interact(), timeout=timeout.total_seconds() if timeout else None
-        )
+        if timeout is None:
+            return await interact()
+        else:
+            return await asyncio.wait_for(interact(), timeout=timeout.total_seconds())
 
     def __repr__(self) -> str:
         return f"Ref(id={repr(self.id)})"

@@ -19,9 +19,11 @@ from phoenix.actor import cell
 from phoenix.actor.actor import ActorContext
 from phoenix.actor.cell import ActorCell, BootstrapActorCell
 from phoenix.actor.timers import Timers
+from phoenix.address import Address
 from phoenix.behaviour import Behaviour
 from phoenix.dispatchers import dispatcher as dispatchermsg
 from phoenix.dispatchers.coro import CoroDispatcher
+from phoenix.path import ActorPath
 from phoenix.persistence import persister
 from phoenix.persistence.store import SqlAlchemyStore
 from phoenix.ref import Ref
@@ -92,6 +94,7 @@ class SystemState:
 # * Send messages to system to observe behaviour.
 async def system(
     user: Behaviour,
+    address: Address = Address(host="localhost", port=8081),
     default_dispatcher: Callable[[], Behaviour] = CoroDispatcher.start,
     db_url="sqlite:///db",
 ):
@@ -308,15 +311,29 @@ async def system(
 
         return behaviour.setup(f)
 
-    root_ref = Ref(id="root", inbox=janus.Queue(), thread=threading.current_thread())
+    root_ref = Ref(
+        id="root",
+        path=ActorPath(address),
+        inbox=janus.Queue(),
+        thread=threading.current_thread(),
+    )
     system_ref = Ref(
-        id="system", inbox=janus.Queue(), thread=threading.current_thread()
+        id="system",
+        path=ActorPath(address) / "system",
+        inbox=janus.Queue(),
+        thread=threading.current_thread(),
     )
     default_dispatcher_ref = Ref(
-        id="dispatcher-default", inbox=janus.Queue(), thread=threading.current_thread()
+        id="dispatcher-default",
+        path=ActorPath(address) / "system" / "dispatcher",
+        inbox=janus.Queue(),
+        thread=threading.current_thread(),
     )
     registry_ref = Ref(
-        id="registry", inbox=janus.Queue(), thread=threading.current_thread()
+        id="registry",
+        path=ActorPath(address) / "system" / "registry",
+        inbox=janus.Queue(),
+        thread=threading.current_thread(),
     )
 
     # FIXME: What happens when the application is asked to shut down?
