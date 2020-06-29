@@ -84,7 +84,7 @@ class Persist(Generic[S, C, E]):
         if isinstance(reply, persister.Loaded):
             logger.debug("[%s] Recovering from persisted events.", context.ref)
             for event in reply.events:
-                data = json.loads(event.data)
+                data = await asyncio.get_event_loop().run_in_executor(None, json.loads(event.data))
                 event = self.decode(topic_id=event.topic_id, data=data)
                 state = await self.event_handler(state, event)
             offset = reply.offset + 1
