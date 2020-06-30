@@ -31,6 +31,12 @@ class ActorStopped:
     id: str = attr.ib(validator=instance_of(str))
 
 
+@attr.s
+class Entity:
+    type_: str = attr.ib(validator=instance_of(str))
+    entity_id: str = attr.ib(validator=instance_of(str))
+
+
 # TODO: support passivating persistent actors for resource conservation
 
 
@@ -64,7 +70,10 @@ class Singleton:
             try:
                 actor_ref = actors_of_type[msg.id]
             except KeyError:
-                actor_ref = await context.spawn(factory(msg.id))
+                actor_ref = await context.spawn(
+                    factory(Entity(type_=msg.type_, entity_id=msg.id)),
+                    f"{msg.type_}-{msg.id}",
+                )
                 await context.watch(actor_ref, ActorStopped(msg.type_, msg.id))
                 actors_of_type = actors_of_type.set(msg.id, actor_ref)
 
