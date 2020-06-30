@@ -1,9 +1,15 @@
 import asyncio
 import attr
 from attr.validators import instance_of
+from multipledispatch import dispatch
+from sqlalchemy import create_engine
+from sqlalchemy_aio import ASYNCIO_STRATEGY
 from typing import Iterable, Optional, Tuple
 
+from phoenix import behaviour, routers
+from phoenix.behaviour import Behaviour
 from phoenix.persistence.db import events_table, metadata
+from phoenix.ref import Ref
 
 
 @attr.s
@@ -13,47 +19,121 @@ class Event:
 
 
 @attr.s
-class SqlAlchemyStore:
-    """
-    Event-sourcing data store.
-    """
+class Persist:
+    reply_to: Ref = attr.ib(validator=instance_of(Ref))
+    id: str = attr.ib(validator=instance_of(str))
+    events: Iterable[Event] = attr.ib()
+    offset: int = attr.ib(validator=instance_of(int))
 
-    engine = attr.ib()
 
-    async def create_schema(self):
-        await asyncio.get_event_loop().run_in_executor(
-            None, lambda: metadata.create_all(bind=self.engine.sync_engine)
-        )
+@attr.s
+class Persisted:
+    offset: int = attr.ib(validator=instance_of(int))
 
-    async def persist(
-        self, entity_id: str, events: Iterable[Event], offset: int
-    ) -> int:
-        async with self.engine.connect() as conn:
-            async with conn.begin():
-                for i, event in enumerate(events):
-                    await conn.execute(
-                        events_table.insert().values(
-                            id=None,
-                            entity_id=entity_id,
-                            offset=offset + i,
-                            topic_id=event.topic_id,
-                            data=event.data,
+
+@attr.s
+class Load:
+    reply_to: Ref = attr.ib(validator=instance_of(Ref))
+    id: str = attr.ib(validator=instance_of(str))
+
+
+@attr.s
+class Loaded:
+    events: Iterable[Event] = attr.ib()
+    offset: int = attr.ib(validator=instance_of(int))
+
+
+@attr.s
+class NotFound:
+    pass
+
+
+class Writer:
+    @staticmethod
+    def start(engine) -> Behaviour:
+        async def recv(msg: Persist):
+            async with engine.connect() as conn:
+                async with conn.begin():
+                    for i, event in enumerate(msg.events):
+                        await conn.execute(
+                            events_table.insert().values(
+                                id=None,
+                                entity_id=msg.id,
+                                offset=msg.offset + i,
+                                topic_id=event.topic_id,
+                                data=event.data,
+                            )
                         )
-                    )
-        return offset + i
+            await msg.reply_to.tell(Persisted(msg.offset + i))
+            return behaviour.same()
 
-    async def load(
-        self, entity_id: str, offset: Optional[int] = None
-    ) -> Tuple[Iterable[Event], int]:
-        async with self.engine.connect() as conn:
-            async with conn.begin():
-                query = events_table.select(events_table.c.entity_id == entity_id)
-                if offset is not None:
-                    query = query.select(events_table.c.offset > offset)
-                events = await conn.execute(query)
-                events = await events.fetchall()
-        if events:
-            offset = events[-1].offset
-        else:
-            offset = -1
-        return ([Event(topic_id=x.topic_id, data=x.data) for x in events], offset)
+        return behaviour.receive(recv)
+
+
+class Reader:
+    @staticmethod
+    def start(engine) -> Behaviour:
+        async def recv(msg: Load):
+            async with engine.connect() as conn:
+                async with conn.begin():
+                    query = events_table.select(events_table.c.entity_id == msg.id)
+                    events = await conn.execute(query)
+                    events = await events.fetchall()
+
+            if events:
+                offset = events[-1].offset
+            else:
+                offset = -1
+            
+            events = [Event(topic_id=x.topic_id, data=x.data) for x in events]
+            if events:
+                await msg.reply_to.tell(Loaded(events=events, offset=offset))
+            else:
+                await msg.reply_to.tell(NotFound())
+
+            return behaviour.same()
+        return behaviour.receive(recv)
+
+
+class SqliteStore:
+    """
+    Event-sourcing sqlite data store.
+    """
+
+    @staticmethod
+    def start(db_url: str) -> Behaviour:
+        async def setup(context):
+            engine = create_engine(db_url, strategy=ASYNCIO_STRATEGY)
+            result = await engine.execute("PRAGMA journal_mode=WAL")
+            result, *_ = await result.fetchone()
+            if result != "wal":
+                raise ValueError("sqlite database does not support WAL mode.")
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda: metadata.create_all(bind=engine.sync_engine)
+            )
+            # Split sqlite store into a single writer and
+            # multiple readers due to lack of support for
+            # concurrent writing.
+            writer = await context.spawn(Writer.start(engine), "sqlite-store-writer")
+            reader_pool = routers.pool(4)(Reader.start(engine))
+            reader = await context.spawn(reader_pool, "sqlite-store-reader")
+            return SqliteStore.active(writer, reader)
+        return behaviour.setup(setup)
+    
+    @staticmethod
+    def active(writer, reader) -> Behaviour:
+        dispatch_namespace = {}
+
+        @dispatch(Persist, namespace=dispatch_namespace)
+        async def handle(msg: Persist):
+            await writer.tell(msg)
+            return behaviour.same()
+        
+        @dispatch(Load, namespace=dispatch_namespace)
+        async def handle(msg: Load):
+            await reader.tell(msg)
+            return behaviour.same()
+
+        async def recv(msg):
+            return await handle(msg)
+        return behaviour.receive(recv)

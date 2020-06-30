@@ -7,8 +7,6 @@ import janus
 import logging
 from multipledispatch import dispatch
 from pyrsistent import PVector, m, v
-from sqlalchemy import create_engine
-from sqlalchemy_aio import ASYNCIO_STRATEGY
 import threading
 import traceback
 from typing import Any, Callable, Generic, Iterable, List, Mapping, Optional, TypeVar
@@ -23,7 +21,7 @@ from phoenix.behaviour import Behaviour
 from phoenix.dispatchers import dispatcher as dispatchermsg
 from phoenix.dispatchers.coro import CoroDispatcher
 from phoenix.persistence import persister
-from phoenix.persistence.store import SqlAlchemyStore
+from phoenix.persistence.store import SqliteStore
 from phoenix.ref import Ref
 from phoenix import registry
 from phoenix.system.messages import (
@@ -377,22 +375,18 @@ async def system(
     root_task = asyncio.create_task(root_cell.run())
     registry_task = asyncio.create_task(registry_cell.run())
 
-    store_factory = lambda: SqlAlchemyStore(
-        engine=create_engine(db_url, strategy=ASYNCIO_STRATEGY)
-    )
-    persister_pool = routers.pool(
-        4,
-        strategy=routers.ConsistentHashing(key_for=lambda msg: f"{msg.type_}-{msg.id}"),
-    )(persister.Persister.start(store_factory))
     # TODO: persister only started when persistence first used.
-    await system_ref.ask(
+    persister_ref = await system_ref.ask(
         lambda reply_to: SpawnActor(
             reply_to=reply_to,
             id="persister",
-            behaviour=persister_pool,
+            behaviour=SqliteStore.start(db_url),
             dispatcher=None,
             parent=system_ref,
         )
+    )
+    await registry_ref.tell(
+        registry.Register(key="persister", ref=persister_ref.ref)
     )
 
     await system_ref.ask(

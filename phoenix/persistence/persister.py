@@ -46,9 +46,6 @@ class Persister:
         async def f(context):
             store = store_factory()
             await store.create_schema()
-            await context.registry.tell(
-                registry.Register(key="persister", ref=context.ref)
-            )
             return Persister.active(store)
 
         return behaviour.setup(f)
