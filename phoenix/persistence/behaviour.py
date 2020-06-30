@@ -1,6 +1,8 @@
+import abc
 import asyncio
 import attr
-from attr.validators import instance_of
+from attr.validators import instance_of, optional
+from functools import partial
 import json
 import logging
 from multipledispatch import dispatch
@@ -18,6 +20,12 @@ E = TypeVar("E")
 
 
 @attr.s(frozen=True)
+class Retention:
+    number_of_events: int = attr.ib(validator=instance_of(int))
+    keep_n_snapshots: int = attr.ib(validator=instance_of(int))
+
+
+@attr.s(frozen=True)
 class Persist(Generic[S, C, E]):
     id: str = attr.ib(validator=instance_of(str))
     empty_state: S = attr.ib()
@@ -26,9 +34,20 @@ class Persist(Generic[S, C, E]):
     encode: Callable[[E], dict] = attr.ib()
     decode: Callable[[dict], E] = attr.ib()
     on_lifecycle: Optional[Callable] = attr.ib(default=None)
+    retention: Optional[Retention] = attr.ib(
+        validator=optional(instance_of(Retention)), default=None
+    )
 
-    def with_on_lifecycle(self, on_lifecycle: Callable):
+    def with_on_lifecycle(self, on_lifecycle: Callable) -> "Persist":
         return attr.evolve(self, on_lifecycle=on_lifecycle)
+
+    def with_retention(self, number_of_events: int, keep_n_snapshots: int) -> "Persist":
+        return attr.evolve(
+            self,
+            retention=Retention(
+                number_of_events=number_of_events, keep_n_snapshots=keep_n_snapshots
+            ),
+        )
 
     async def execute(self, context):
         logger.debug("[%s] Executing %s", context.ref, self.__class__.__name__)
@@ -55,8 +74,8 @@ class Persist(Generic[S, C, E]):
                 for topic_id, data in events
             ]
             reply = await persister_ref.ask(
-                lambda reply_to: persister.Persist(
-                    reply_to=reply_to, id=self.id, events=events, offset=offset
+                lambda reply_to: persister.PersistEvents(
+                    reply_to=reply_to, entity_id=self.id, events=events, offset=offset
                 )
             )
 
@@ -77,18 +96,44 @@ class Persist(Generic[S, C, E]):
             await eff.reply_to.tell(eff.msg)
             return state, offset
 
-        state = self.empty_state
-        reply = await persister_ref.ask(
-            lambda reply_to: persister.Load(reply_to=reply_to, id=self.id)
+        # Check for a snapshot
+        state = await persister_ref.ask(
+            lambda reply_to: persister.LoadLatestSnapshot(
+                reply_to=reply_to, entity_id=self.id
+            )
         )
-        if isinstance(reply, persister.Loaded):
+        if isinstance(state, persister.Success):
+            logger.debug("[%s] Recovering from snapshot.", context.ref)
+            state = await asyncio.get_event_loop().run_in_executor(
+                None, partial(json.loads, state.value)
+            )
+            state = await asyncio.get_event_loop().run_in_executor(
+                None, partial(self.decode, topic_id=state.topic_id, data=state.data)
+            )
+            offset = state.offset
+            last_state_offset = state.offset
+        else:
+            state = self.empty_state
+            offset = None
+            last_state_offset = None
+
+        # Load remaining events (if any)
+        events = await persister_ref.ask(
+            lambda reply_to: persister.LoadEvents(
+                reply_to=reply_to, entity_id=self.id, after=offset
+            )
+        )
+        if isinstance(events, persister.Events):
             logger.debug("[%s] Recovering from persisted events.", context.ref)
-            for event in reply.events:
-                data = await asyncio.get_event_loop().run_in_executor(None, json.loads(event.data))
+            for event in events.events:
+                data = await asyncio.get_event_loop().run_in_executor(
+                    None, partial(json.loads, event.data)
+                )
                 event = self.decode(topic_id=event.topic_id, data=data)
                 state = await self.event_handler(state, event)
-            offset = reply.offset + 1
-        else:
+            offset = events.offset + 1
+
+        if offset is None:
             offset = 0
 
         while True:
@@ -96,5 +141,11 @@ class Persist(Generic[S, C, E]):
 
             eff = await self.command_handler(state, msg)
             state, offset = await execute_effect(state, eff, offset)
+
+            if self.retention:
+                if last_state_offset is None:
+                    pass
+                else:
+                    pass
 
             context.ref.inbox.async_q.task_done()

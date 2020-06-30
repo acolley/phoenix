@@ -1,19 +1,27 @@
 import asyncio
 import attr
-from attr.validators import instance_of
+from sqlalchemy import Column, Integer, MetaData, String, Table, Text, UniqueConstraint
+from sqlalchemy.schema import CreateTable
 from typing import Iterable, Optional, Tuple
 
-from phoenix.persistence.db import events_table, metadata
+from phoenix.persistence.event import Event
+
+
+metadata = MetaData()
+events_table = Table(
+    "events",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("entity_id", String),
+    Column("offset", Integer),
+    Column("topic_id", Text),
+    Column("data", Text),
+    UniqueConstraint("entity_id", "offset"),
+)
 
 
 @attr.s
-class Event:
-    topic_id: str = attr.ib(validator=instance_of(str))
-    data: str = attr.ib(validator=instance_of(str))
-
-
-@attr.s
-class SqlAlchemyStore:
+class SqlAlchemyEventStore:
     """
     Event-sourcing data store.
     """

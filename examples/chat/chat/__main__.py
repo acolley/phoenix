@@ -97,6 +97,8 @@ class MessageSubscriber:
                     return behaviour.stop()
 
                 nonlocal offset
+                if msg.result.value:
+                    offset = msg.result.value[-1].offset
                 events = [
                     event
                     for event in msg.result.value
@@ -114,8 +116,6 @@ class MessageSubscriber:
                             "offset": event.offset,
                         }
                     )
-                if events:
-                    offset = events[-1].offset
                 return behaviour.same()
 
             async def recv(msg):

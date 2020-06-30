@@ -3,7 +3,7 @@ from attr.validators import instance_of
 import json
 from typing import Any, Iterable, Optional, Tuple
 
-from phoenix.persistence.db import events_table
+from phoenix.persistence.store.event.sqlalchemy import events_table
 
 
 @attr.s

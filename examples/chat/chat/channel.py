@@ -120,7 +120,7 @@ class Channel:
             return attr.evolve(
                 state,
                 messages=state.messages.append(
-                    Message(at=evt.at, by=evt.by, text=evt.text,)
+                    Message(at=evt.at, by=evt.by, text=evt.text)
                 ),
             )
 
@@ -131,4 +131,4 @@ class Channel:
             event_handler=handle_event,
             encode=encode,
             decode=decode,
-        )
+        ).with_retention(number_of_events=5, keep_n_snapshots=1)
