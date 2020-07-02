@@ -1,13 +1,17 @@
+import asyncio
 import attr
 from attr.validators import instance_of, optional
 import json
+from multipledispatch import dispatch
 from sqlalchemy import create_engine, and_
 from sqlalchemy_aio import ASYNCIO_STRATEGY
 from typing import Any, Iterable, Optional, Tuple
 
-from phoenix.persistence.db import events_table
-from phoenix.persistence.persistence_id import PersistenceId
-from phoenix.ref import Ref
+from atlas.actor import behaviour
+from atlas.actor.behaviour import Behaviour
+from atlas.actor.persistence.db import events_table, event_tags_table
+from atlas.actor.persistence.persistence_id import PersistenceId
+from atlas.actor.ref import Ref
 
 
 @attr.s(frozen=True)
@@ -62,18 +66,18 @@ class SqliteReadJournal:
 
         @dispatch(ListEvents, namespace=dispatch_namespace)
         async def handle(msg: ListEvents):
-            async with self.engine.connect() as conn:
+            async with engine.connect() as conn:
                 async with conn.begin():
                     query = (
                         events_table.select()
                         .order_by(events_table.c.id.asc())
-                        .limit(100)
+                        .limit(500)
                     )
                     if msg.after_offset is not None:
                         query = query.where(events_table.c.id > msg.after_offset)
                     events = await conn.execute(query)
                     events = await events.fetchall()
-            events = [
+            events = await asyncio.get_event_loop().run_in_executor(None, lambda: [
                 Event(
                     persistence_id=PersistenceId(
                         type_=event.type, entity_id=event.entity_id
@@ -83,27 +87,27 @@ class SqliteReadJournal:
                     sequence_number=event.offset,
                 )
                 for event in events
-            ]
+            ])
             await msg.reply_to.tell(Events(events))
             return behaviour.same()
 
         @dispatch(ListEventsByTag, namespace=dispatch_namespace)
         async def handle(msg: ListEventsByTag):
-            async with self.engine.connect() as conn:
+            async with engine.connect() as conn:
                 async with conn.begin():
                     query = (
-                        events_table.select()
+                        events_table.select().select_from(events_table.join(event_tags_table,
+                            event_tags_table.c.event_id == events_table.c.id
+                        ))
+                        .where(event_tags_table.c.tag == msg.tag)
                         .order_by(events_table.c.id.asc())
-                        .limit(100)
+                        .limit(500)
                     )
                     if msg.after_offset is not None:
                         query = query.where(events_table.c.id > msg.after_offset)
-                    query = query.join(
-                        event_tags_table.c.entity_id == events_table.id
-                    ).where(event_tags_table.c.tag == msg.tag)
                     events = await conn.execute(query)
                     events = await events.fetchall()
-            events = [
+            events = await asyncio.get_event_loop().run_in_executor(None, lambda: [
                 Event(
                     persistence_id=PersistenceId(
                         type_=event.type, entity_id=event.entity_id
@@ -113,13 +117,13 @@ class SqliteReadJournal:
                     sequence_number=event.offset,
                 )
                 for event in events
-            ]
+            ])
             await msg.reply_to.tell(Events(events))
             return behaviour.same()
 
         @dispatch(ListEventsByPersistenceId, namespace=dispatch_namespace)
         async def handle(msg: ListEventsByPersistenceId):
-            async with self.engine.connect() as conn:
+            async with engine.connect() as conn:
                 async with conn.begin():
                     query = (
                         events_table.select()
@@ -131,7 +135,7 @@ class SqliteReadJournal:
                             )
                         )
                         .order_by(events_table.c.id.asc())
-                        .limit(100)
+                        .limit(500)
                     )
                     if msg.after_sequence_number is not None:
                         query = query.where(
@@ -140,7 +144,7 @@ class SqliteReadJournal:
 
                     events = await conn.execute(query)
                     events = await events.fetchall()
-            events = [
+            events = await asyncio.get_event_loop().run_in_executor(None, lambda: [
                 Event(
                     persistence_id=PersistenceId(
                         type_=event.type, entity_id=event.entity_id
@@ -150,7 +154,7 @@ class SqliteReadJournal:
                     sequence_number=event.offset,
                 )
                 for event in events
-            ]
+            ])
             await msg.reply_to.tell(Events(events))
             return behaviour.same()
 
