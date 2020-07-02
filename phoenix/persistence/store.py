@@ -1,15 +1,27 @@
 import asyncio
 import attr
-from attr.validators import instance_of
+from attr.validators import deep_iterable, instance_of
 from multipledispatch import dispatch
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, and_
 from sqlalchemy_aio import ASYNCIO_STRATEGY
-from typing import Iterable, Optional, Tuple
+from typing import Iterable, Optional, Set, Tuple
 
 from phoenix import behaviour, routers
 from phoenix.behaviour import Behaviour
-from phoenix.persistence.db import events_table, metadata
+from phoenix.persistence.db import events_table, event_tags_table, metadata
+from phoenix.persistence.persistence_id import PersistenceId
 from phoenix.ref import Ref
+
+
+@attr.s
+class PersistEvent:
+    topic_id: str = attr.ib(validator=instance_of(str))
+    data: str = attr.ib(validator=instance_of(str))
+    tags: Set[str] = attr.ib(
+        validator=deep_iterable(
+            member_validator=instance_of(str), iterable_validator=instance_of(set)
+        )
+    )
 
 
 @attr.s
@@ -21,7 +33,7 @@ class Event:
 @attr.s
 class Persist:
     reply_to: Ref = attr.ib(validator=instance_of(Ref))
-    id: str = attr.ib(validator=instance_of(str))
+    id: PersistenceId = attr.ib(validator=instance_of(PersistenceId))
     events: Iterable[Event] = attr.ib()
     offset: int = attr.ib(validator=instance_of(int))
 
@@ -34,7 +46,7 @@ class Persisted:
 @attr.s
 class Load:
     reply_to: Ref = attr.ib(validator=instance_of(Ref))
-    id: str = attr.ib(validator=instance_of(str))
+    id: PersistenceId = attr.ib(validator=instance_of(PersistenceId))
 
 
 @attr.s
@@ -55,15 +67,23 @@ class Writer:
             async with engine.connect() as conn:
                 async with conn.begin():
                     for i, event in enumerate(msg.events):
-                        await conn.execute(
+                        result = await conn.execute(
                             events_table.insert().values(
                                 id=None,
-                                entity_id=msg.id,
+                                type=msg.id.type_,
+                                entity_id=msg.id.entity_id,
                                 offset=msg.offset + i,
                                 topic_id=event.topic_id,
                                 data=event.data,
                             )
                         )
+                        [event_id] = result.inserted_primary_key
+                        for tag in event.tags:
+                            await conn.execute(
+                                event_tags_table.insert().values(
+                                    id=None, event_id=event_id, tag=tag,
+                                )
+                            )
             await msg.reply_to.tell(Persisted(msg.offset + i))
             return behaviour.same()
 
@@ -76,7 +96,16 @@ class Reader:
         async def recv(msg: Load):
             async with engine.connect() as conn:
                 async with conn.begin():
-                    query = events_table.select(events_table.c.entity_id == msg.id)
+                    query = (
+                        events_table.select()
+                        .where(
+                            and_(
+                                events_table.c.type == msg.id.type_,
+                                events_table.c.entity_id == msg.id.entity_id,
+                            )
+                        )
+                        .order_by(events_table.c.offset.asc())
+                    )
                     events = await conn.execute(query)
                     events = await events.fetchall()
 
@@ -84,7 +113,7 @@ class Reader:
                 offset = events[-1].offset
             else:
                 offset = -1
-            
+
             events = [Event(topic_id=x.topic_id, data=x.data) for x in events]
             if events:
                 await msg.reply_to.tell(Loaded(events=events, offset=offset))
@@ -92,6 +121,7 @@ class Reader:
                 await msg.reply_to.tell(NotFound())
 
             return behaviour.same()
+
         return behaviour.receive(recv)
 
 
@@ -118,8 +148,9 @@ class SqliteStore:
             reader_pool = routers.pool(4)(Reader.start(engine))
             reader = await context.spawn(reader_pool, "sqlite-store-reader")
             return SqliteStore.active(writer, reader)
+
         return behaviour.setup(setup)
-    
+
     @staticmethod
     def active(writer, reader) -> Behaviour:
         dispatch_namespace = {}
@@ -128,7 +159,7 @@ class SqliteStore:
         async def handle(msg: Persist):
             await writer.tell(msg)
             return behaviour.same()
-        
+
         @dispatch(Load, namespace=dispatch_namespace)
         async def handle(msg: Load):
             await reader.tell(msg)
@@ -136,4 +167,5 @@ class SqliteStore:
 
         async def recv(msg):
             return await handle(msg)
+
         return behaviour.receive(recv)

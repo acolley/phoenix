@@ -1,13 +1,15 @@
 import asyncio
 import attr
 from attr.validators import instance_of
+from functools import partial
 import json
 import logging
 from multipledispatch import dispatch
-from typing import Callable, Coroutine, Generic, Optional, TypeVar
+from typing import Callable, Coroutine, Generic, Optional, Set, TypeVar
 
 from phoenix import registry
-from phoenix.persistence import effect, persister
+from phoenix.persistence import effect, store
+from phoenix.persistence.persistence_id import PersistenceId
 
 logger = logging.getLogger(__name__)
 
@@ -19,15 +21,19 @@ E = TypeVar("E")
 
 @attr.s(frozen=True)
 class Persist(Generic[S, C, E]):
-    id: str = attr.ib(validator=instance_of(str))
+    id: PersistenceId = attr.ib(validator=instance_of(PersistenceId))
     empty_state: S = attr.ib()
     command_handler: Callable[[S, C], Coroutine[effect.Effect, None, None]] = attr.ib()
     event_handler: Callable[[S, E], Coroutine[S, None, None]] = attr.ib()
     encode: Callable[[E], dict] = attr.ib()
     decode: Callable[[dict], E] = attr.ib()
+    tagger: Optional[Callable[[E], Set[str]]] = attr.ib(default=None)
     on_lifecycle: Optional[Callable] = attr.ib(default=None)
 
-    def with_on_lifecycle(self, on_lifecycle: Callable):
+    def with_tagger(self, tagger: Callable[[E], Set[str]]) -> "Persist":
+        return attr.evolve(self, tagger=tagger)
+
+    def with_on_lifecycle(self, on_lifecycle: Callable) -> "Persist":
         return attr.evolve(self, on_lifecycle=on_lifecycle)
 
     async def execute(self, context):
@@ -51,11 +57,15 @@ class Persist(Generic[S, C, E]):
             logger.debug("[%s] Persisting events.", context.ref)
             events = [self.encode(x) for x in eff.events]
             events = [
-                persister.Event(topic_id=topic_id, data=json.dumps(data))
-                for topic_id, data in events
+                store.PersistEvent(
+                    topic_id=topic_id,
+                    data=json.dumps(data),
+                    tags=self.tagger(event) if self.tagger else set(),
+                )
+                for (topic_id, data), event in zip(events, eff.events)
             ]
             reply = await persister_ref.ask(
-                lambda reply_to: persister.Persist(
+                lambda reply_to: store.Persist(
                     reply_to=reply_to, id=self.id, events=events, offset=offset
                 )
             )
@@ -79,13 +89,17 @@ class Persist(Generic[S, C, E]):
 
         state = self.empty_state
         reply = await persister_ref.ask(
-            lambda reply_to: persister.Load(reply_to=reply_to, id=self.id)
+            lambda reply_to: store.Load(reply_to=reply_to, id=self.id)
         )
-        if isinstance(reply, persister.Loaded):
+        if isinstance(reply, store.Loaded):
             logger.debug("[%s] Recovering from persisted events.", context.ref)
             for event in reply.events:
-                data = await asyncio.get_event_loop().run_in_executor(None, json.loads(event.data))
-                event = self.decode(topic_id=event.topic_id, data=data)
+                data = await asyncio.get_event_loop().run_in_executor(
+                    None, partial(json.loads, event.data)
+                )
+                event = await asyncio.get_event_loop().run_in_executor(
+                    None, partial(self.decode, topic_id=event.topic_id, data=data)
+                )
                 state = await self.event_handler(state, event)
             offset = reply.offset + 1
         else:

@@ -385,9 +385,7 @@ async def system(
             parent=system_ref,
         )
     )
-    await registry_ref.tell(
-        registry.Register(key="persister", ref=persister_ref.ref)
-    )
+    await registry_ref.tell(registry.Register(key="persister", ref=persister_ref.ref))
 
     await system_ref.ask(
         lambda reply_to: SpawnActor(
