@@ -10,6 +10,7 @@ import logging
 from typing import Any, Callable, Coroutine, Dict, Generic, Optional, TypeVar, Union
 
 from phoenix.actor.lifecycle import PostStop, PreRestart, RestartActor, StopActor
+from phoenix.actor.timers import FixedDelayEnvelope
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +34,17 @@ class Receive:
     async def execute(self, context):
         logger.debug("[%s] Executing %s", context.ref, self.__class__.__name__)
         message = await context.ref.inbox.async_q.get()
+        event = None
+        if isinstance(message, FixedDelayEnvelope):
+            event = message.event
+            message = message.msg
         logger.debug("[%s] Message received: %s", context.ref, repr(message)[:200])
         try:
             next_ = await self.f(message)
         finally:
             context.ref.inbox.async_q.task_done()
+            if event:
+                event.set()
         return next_
 
 

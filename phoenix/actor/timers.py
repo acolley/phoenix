@@ -10,6 +10,12 @@ import uuid
 from phoenix.ref import Ref
 
 
+@attr.s(frozen=True)
+class FixedDelayEnvelope:
+    msg: Any = attr.ib()
+    event: asyncio.Event = attr.ib(validator=instance_of(asyncio.Event))
+
+
 @attr.s
 class Timers:
     ref: Ref = attr.ib(validator=instance_of(Ref))
@@ -46,7 +52,38 @@ class Timers:
                 raise ValueError(f"Timer `{name}` already exists.")
 
             self._timers = self._timers.set(
-                name, asyncio.create_task(_fixed_rate_timer())
+                name, asyncio.get_event_loop().create_task(_fixed_rate_timer())
+            )
+
+    async def start_fixed_delay_timer(
+        self,
+        message: Any,
+        interval: timedelta,
+        name: Optional[str] = None,
+        initial_delay: Optional[timedelta] = None,
+    ):
+        name = name or str(uuid.uuid1())
+
+        async def _fixed_delay_timer():
+            if initial_delay is not None:
+                await asyncio.sleep(initial_delay.total_seconds())
+                event = asyncio.Event()
+                msg = FixedDelayEnvelope(msg=message, event=event)
+                await self.ref.tell(msg)
+                await event.wait()
+            while True:
+                await asyncio.sleep(interval.total_seconds())
+                event = asyncio.Event()
+                msg = FixedDelayEnvelope(msg=message, event=event)
+                await self.ref.tell(msg)
+                await event.wait()
+
+        async with self.lock:
+            if name in self._timers:
+                raise ValueError(f"Timer `{name}` already exists.")
+
+            self._timers = self._timers.set(
+                name, asyncio.get_event_loop().create_task(_fixed_delay_timer())
             )
 
     async def start_single_shot_timer(
@@ -64,7 +101,7 @@ class Timers:
                 raise ValueError(f"Timer `{name}` already exists.")
 
             self._timers = self._timers.set(
-                name, asyncio.create_task(_single_shot_timer())
+                name, asyncio.get_event_loop().create_task(_single_shot_timer())
             )
 
     async def cancel(self, name: str):

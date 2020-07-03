@@ -11,6 +11,7 @@ class SpawnActor:
     id: str = attr.ib(validator=instance_of(str))
     behaviour: Behaviour = attr.ib()
     parent: Ref = attr.ib(validator=instance_of(Ref))
+    mailbox = attr.ib()
 
 
 @attr.s

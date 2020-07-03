@@ -38,7 +38,7 @@ class CoroDispatcher:
 
         @dispatch(SpawnActor, namespace=dispatch_namespace)
         async def coro_dispatcher_handle(msg: SpawnActor):
-            ref = Ref(id=msg.id, inbox=janus.Queue(), thread=threading.current_thread())
+            ref = Ref(id=msg.id, inbox=msg.mailbox(), thread=threading.current_thread())
             cell = ActorCell(
                 behaviour=msg.behaviour,
                 context=ActorContext(
@@ -51,7 +51,7 @@ class CoroDispatcher:
                     timers=Timers(ref=ref, lock=asyncio.Lock()),
                 ),
             )
-            task = asyncio.create_task(cell.run())
+            task = asyncio.get_event_loop().create_task(cell.run())
             await msg.reply_to.tell(ActorSpawned(ref=ref))
             return CoroDispatcher.active(context=context, actors=actors.set(ref, task))
 

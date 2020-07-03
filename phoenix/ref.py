@@ -12,6 +12,10 @@ import uuid
 logger = logging.getLogger(__name__)
 
 
+class AskTimeoutError(Exception):
+    pass
+
+
 @attr.s(frozen=True, repr=False)
 class Ref:
     # For internal purposes an actor is simply a product of
@@ -46,9 +50,12 @@ class Ref:
             await self.tell(msg)
             return await reply_to.inbox.async_q.get()
 
-        return await asyncio.wait_for(
-            interact(), timeout=timeout.total_seconds() if timeout else None
-        )
+        try:
+            return await asyncio.wait_for(
+                interact(), timeout=timeout.total_seconds() if timeout else None
+            )
+        except asyncio.TimeoutError:
+            raise AskTimeoutError
 
     def __repr__(self) -> str:
         return f"Ref(id={repr(self.id)})"

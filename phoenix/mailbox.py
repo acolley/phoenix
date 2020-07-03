@@ -8,6 +8,7 @@ class UnboundedMailbox:
         return janus.Queue()
 
 
+@attr.s
 class BoundedMailbox:
     maxsize: int = attr.ib(validator=instance_of(int))
 

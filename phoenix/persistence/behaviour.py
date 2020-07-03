@@ -8,6 +8,7 @@ from multipledispatch import dispatch
 from typing import Callable, Coroutine, Generic, Optional, Set, TypeVar
 
 from phoenix import registry
+from phoenix.actor.timers import FixedDelayEnvelope
 from phoenix.persistence import effect, store
 from phoenix.persistence.persistence_id import PersistenceId
 
@@ -108,7 +109,14 @@ class Persist(Generic[S, C, E]):
         while True:
             msg = await context.ref.inbox.async_q.get()
 
+            event = None
+            if isinstance(msg, FixedDelayEnvelope):
+                event = msg.event
+                msg = msg.msg
+
             eff = await self.command_handler(state, msg)
             state, offset = await execute_effect(state, eff, offset)
 
             context.ref.inbox.async_q.task_done()
+            if event:
+                event.set()

@@ -5,6 +5,7 @@ from typing import Any, Callable, Hashable, List, Optional
 
 from phoenix import behaviour
 from phoenix.behaviour import Behaviour
+from phoenix.mailbox import UnboundedMailbox
 from phoenix.ref import Ref
 
 
@@ -53,11 +54,12 @@ class PoolRouter:
         worker_behaviour: Behaviour,
         size: int,
         strategy: Callable[[], Callable[[Any], int]],
+        mailbox,
     ) -> Behaviour:
         async def f(context):
             workers = v()
             for i in range(size):
-                worker = await context.spawn(worker_behaviour, f"{context.ref.id}-{i}")
+                worker = await context.spawn(worker_behaviour, f"{context.ref.id}-{i}", mailbox=mailbox)
                 workers = workers.append(worker)
             return PoolRouter.work(workers, strategy(size))
 
@@ -75,11 +77,11 @@ class PoolRouter:
 
 
 def pool(
-    size: int, strategy: Optional[Callable[[], Callable[[Any], int]]] = None
+    size: int, strategy: Optional[Callable[[], Callable[[Any], int]]] = None, mailbox = UnboundedMailbox()
 ) -> Callable[[], Callable[[], Behaviour]]:
     def _factory(worker_behaviour: Behaviour) -> Behaviour:
         return PoolRouter.start(
-            worker_behaviour, size, RoundRobin() if strategy is None else strategy
+            worker_behaviour, size, RoundRobin() if strategy is None else strategy, mailbox=mailbox
         )
 
     return _factory

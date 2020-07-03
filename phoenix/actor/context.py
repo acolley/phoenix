@@ -8,6 +8,7 @@ import uuid
 
 from phoenix.actor.timers import Timers
 from phoenix.behaviour import Behaviour
+from phoenix.mailbox import BoundedMailbox, UnboundedMailbox
 from phoenix.result import Failure, Success
 from phoenix.ref import Ref
 from phoenix.system import messages
@@ -63,6 +64,7 @@ class ActorContext:
         behaviour: Behaviour,
         id: Optional[str] = None,
         dispatcher: Optional[str] = None,
+        mailbox=UnboundedMailbox(),
     ) -> Ref:
         id = id or str(uuid.uuid1())
         response = await self.system.ask(
@@ -71,6 +73,7 @@ class ActorContext:
                 id=id,
                 behaviour=behaviour,
                 dispatcher=dispatcher,
+                mailbox=mailbox,
                 parent=self.ref,
             )
         )
@@ -114,4 +117,4 @@ class ActorContext:
             msg = cb(result)
             await self.ref.tell(msg)
 
-        asyncio.create_task(pipe())
+        asyncio.get_event_loop().create_task(pipe())
