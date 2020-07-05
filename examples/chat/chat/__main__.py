@@ -11,7 +11,7 @@ from multipledispatch import dispatch
 from phoenix import behaviour, singleton
 from phoenix.behaviour import Behaviour
 from phoenix.persistence import effect
-from phoenix.persistence.journal import SqlAlchemyReadJournal
+from phoenix.persistence.journal import SqliteReadJournal
 from phoenix.result import Failure, Success
 from phoenix.ref import Ref
 from phoenix.system.system import system
@@ -253,10 +253,10 @@ class Application:
     @staticmethod
     def start() -> Behaviour:
         async def setup(context):
-            journal = SqlAlchemyReadJournal(
-                engine=create_engine("sqlite:///db", strategy=ASYNCIO_STRATEGY),
+            journal = await context.spawn(SqliteReadJournal.start(
+                db_url="sqlite:///db",
                 decode=decode,
-            )
+            ))
             entities = await context.spawn(
                 singleton.Singleton.start(m(**{"channel": channel.Channel.start}))
             )

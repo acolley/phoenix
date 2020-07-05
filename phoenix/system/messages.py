@@ -29,6 +29,7 @@ class SpawnActor:
     behaviour: Behaviour = attr.ib()
     dispatcher: Optional[str] = attr.ib(validator=optional(instance_of(str)))
     parent: Ref = attr.ib(validator=instance_of(Ref))
+    mailbox = attr.ib()
 
 
 @attr.s(frozen=True)

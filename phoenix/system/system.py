@@ -20,6 +20,7 @@ from phoenix.actor.timers import Timers
 from phoenix.behaviour import Behaviour
 from phoenix.dispatchers import dispatcher as dispatchermsg
 from phoenix.dispatchers.coro import CoroDispatcher
+from phoenix.mailbox import BoundedMailbox
 from phoenix.persistence import persister
 from phoenix.persistence.store import SqliteStore
 from phoenix.ref import Ref
@@ -120,6 +121,7 @@ async def system(
                         id=msg.id,
                         behaviour=msg.behaviour,
                         parent=msg.parent,
+                        mailbox=msg.mailbox,
                     )
                 )
                 await msg.reply_to.tell(ActorSpawned(ref=response.ref))
@@ -383,6 +385,7 @@ async def system(
             behaviour=SqliteStore.start(db_url),
             dispatcher=None,
             parent=system_ref,
+            mailbox=BoundedMailbox(100),
         )
     )
     await registry_ref.tell(registry.Register(key="persister", ref=persister_ref.ref))
@@ -394,6 +397,7 @@ async def system(
             behaviour=user,
             dispatcher=None,
             parent=root_ref,
+            mailbox=BoundedMailbox(100),
         )
     )
 
