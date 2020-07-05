@@ -1,5 +1,6 @@
 import attr
 from attr.validators import instance_of
+from functools import partial
 from pyrsistent import v
 from typing import Any, Callable, Hashable, List, Optional
 
@@ -80,7 +81,7 @@ def pool(
     size: int, strategy: Optional[Callable[[], Callable[[Any], int]]] = None, mailbox = UnboundedMailbox()
 ) -> Callable[[], Callable[[], Behaviour]]:
     def _factory(worker_behaviour: Behaviour) -> Behaviour:
-        return PoolRouter.start(
+        return partial(PoolRouter.start,
             worker_behaviour, size, RoundRobin() if strategy is None else strategy, mailbox=mailbox
         )
 

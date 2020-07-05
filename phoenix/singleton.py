@@ -3,6 +3,7 @@ Manages a set of unique actors.
 """
 import attr
 from attr.validators import instance_of
+from functools import partial
 from multipledispatch import dispatch
 from pyrsistent import m
 from typing import Any, Callable, Mapping
@@ -71,7 +72,7 @@ class Singleton:
                 actor_ref = actors_of_type[msg.id]
             except KeyError:
                 actor_ref = await context.spawn(
-                    factory(Entity(type_=msg.type_, entity_id=msg.id)),
+                    partial(factory, Entity(type_=msg.type_, entity_id=msg.id)),
                     f"{msg.type_}-{msg.id}",
                 )
                 await context.watch(actor_ref, ActorStopped(msg.type_, msg.id))

@@ -3,6 +3,7 @@ from asyncio import Queue, Task
 import attr
 from attr.validators import deep_iterable, deep_mapping, instance_of, optional
 from datetime import timedelta
+from functools import partial
 import janus
 import logging
 from multipledispatch import dispatch
@@ -21,7 +22,6 @@ from phoenix.behaviour import Behaviour
 from phoenix.dispatchers import dispatcher as dispatchermsg
 from phoenix.dispatchers.coro import CoroDispatcher
 from phoenix.mailbox import BoundedMailbox
-from phoenix.persistence import persister
 from phoenix.persistence.store import SqliteStore
 from phoenix.ref import Ref
 from phoenix import registry
@@ -90,7 +90,7 @@ class SystemState:
 # * User creates a system with the Actor under test.
 # * Send messages to system to observe behaviour.
 async def system(
-    user: Behaviour,
+    user: Callable[[], Behaviour],
     default_dispatcher: Callable[[], Behaviour] = CoroDispatcher.start,
     db_url="sqlite:///db",
 ):
@@ -382,7 +382,7 @@ async def system(
         lambda reply_to: SpawnActor(
             reply_to=reply_to,
             id="persister",
-            behaviour=SqliteStore.start(db_url),
+            behaviour=partial(SqliteStore.start, db_url),
             dispatcher=None,
             parent=system_ref,
             mailbox=BoundedMailbox(100),

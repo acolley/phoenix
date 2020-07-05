@@ -40,7 +40,7 @@ class CoroDispatcher:
         async def coro_dispatcher_handle(msg: SpawnActor):
             ref = Ref(id=msg.id, inbox=msg.mailbox(), thread=threading.current_thread())
             cell = ActorCell(
-                behaviour=msg.behaviour,
+                behaviour=msg.behaviour(),
                 context=ActorContext(
                     ref=ref,
                     parent=msg.parent,

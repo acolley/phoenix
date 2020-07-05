@@ -253,14 +253,14 @@ class Application:
     @staticmethod
     def start() -> Behaviour:
         async def setup(context):
-            journal = await context.spawn(SqliteReadJournal.start(
+            journal = await context.spawn(partial(SqliteReadJournal.start, 
                 db_url="sqlite:///db",
                 decode=decode,
             ))
             entities = await context.spawn(
-                singleton.Singleton.start(m(**{"channel": channel.Channel.start}))
+                partial(singleton.Singleton.start, m(**{"channel": channel.Channel.start}))
             )
-            await context.spawn(Api.start("localhost", 8080, journal, entities))
+            await context.spawn(partial(Api.start, "localhost", 8080, journal, entities))
             return behaviour.ignore()
 
         return behaviour.setup(setup)
@@ -268,7 +268,7 @@ class Application:
 
 def server():
     logging.basicConfig(level=logging.DEBUG)
-    asyncio.run(system(Application.start()))
+    asyncio.run(system(Application.start))
 
 
 def client():

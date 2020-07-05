@@ -1,5 +1,6 @@
 import attr
 from attr.validators import instance_of
+from typing import Callable
 
 from phoenix.behaviour import Behaviour
 from phoenix.ref import Ref
@@ -9,7 +10,7 @@ from phoenix.ref import Ref
 class SpawnActor:
     reply_to: Ref = attr.ib(validator=instance_of(Ref))
     id: str = attr.ib(validator=instance_of(str))
-    behaviour: Behaviour = attr.ib()
+    behaviour: Callable[[], Behaviour] = attr.ib()
     parent: Ref = attr.ib(validator=instance_of(Ref))
     mailbox = attr.ib()
 

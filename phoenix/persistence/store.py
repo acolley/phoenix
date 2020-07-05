@@ -1,6 +1,7 @@
 import asyncio
 import attr
 from attr.validators import deep_iterable, instance_of
+from functools import partial
 from multipledispatch import dispatch
 from sqlalchemy import create_engine, and_
 from sqlalchemy_aio import ASYNCIO_STRATEGY
@@ -144,8 +145,8 @@ class SqliteStore:
             # Split sqlite store into a single writer and
             # multiple readers due to lack of support for
             # concurrent writing.
-            writer = await context.spawn(Writer.start(engine), "sqlite-store-writer")
-            reader_pool = routers.pool(4)(Reader.start(engine))
+            writer = await context.spawn(partial(Writer.start, engine), "sqlite-store-writer")
+            reader_pool = routers.pool(4)(partial(Reader.start, engine))
             reader = await context.spawn(reader_pool, "sqlite-store-reader")
             return SqliteStore.active(writer, reader)
 
