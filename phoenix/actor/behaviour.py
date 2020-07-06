@@ -162,7 +162,7 @@ class Restart:
                     await current.on_lifecycle(PostStop())
                 raise
             except Exception:
-                if self.restarts >= self.max_restarts:
+                if self.max_restarts is not None and self.restarts >= self.max_restarts:
                     if current.on_lifecycle:
                         await current.on_lifecycle(PostStop())
                     raise
