@@ -117,4 +117,4 @@ class ActorContext:
             msg = cb(result)
             await self.ref.tell(msg)
 
-        asyncio.get_event_loop().create_task(pipe())
+        self.loop.create_task(pipe())

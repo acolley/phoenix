@@ -7,6 +7,7 @@ import attr
 from attr.validators import instance_of, optional
 import inspect
 import logging
+from pyrsistent import v
 from typing import Any, Callable, Coroutine, Dict, Generic, Optional, TypeVar, Union
 
 from phoenix.actor.lifecycle import PostStop, PreRestart, RestartActor, StopActor
@@ -187,4 +188,42 @@ class Restart:
                     behaviours.append(next_)
 
 
-Behaviour = Union[Stop, Ignore, Setup, Receive, Same]
+@attr.s
+class Unstash:
+    messages = attr.ib()
+    behaviour: Receive = attr.ib(validator=instance_of(Receive))
+
+    async def execute(self, context) -> "Behaviour":
+        behaviour = self.behaviour
+        for msg in self.messages:
+            next_ = await behaviour.f(msg)
+            if not isinstance(next_, Same):
+                behaviour = next_
+        return behaviour
+
+
+@attr.s
+class Buffer:
+    capacity: int = attr.ib(validator=instance_of(int))
+    messages = attr.ib(default=v())
+
+    def stash(self, msg) -> "Behaviour":
+        if len(self.messages) == self.capacity:
+            raise ValueError("Buffer capacity overflow.")
+        self.messages = self.messages.append(msg)
+    
+    def unstash(self, behaviour: Receive) -> "Behaviour":
+        return Unstash(messages=self.messages, behaviour=behaviour)
+
+
+@attr.s
+class Stash:
+    f = attr.ib()
+    capacity: int = attr.ib(validator=instance_of(int))
+
+    async def execute(self, context) -> "Behaviour":
+        buffer = Buffer(self.capacity)
+        return await self.f(buffer)
+
+
+Behaviour = Union[Stop, Ignore, Setup, Receive, Same, Stash, Unstash]
