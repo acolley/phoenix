@@ -1,6 +1,7 @@
 import asyncio
 import attr
 from attr.validators import instance_of
+from datetime import timedelta
 from functools import partial
 import json
 import logging
@@ -68,7 +69,8 @@ class Persist(Generic[S, C, E]):
             reply = await persister_ref.ask(
                 lambda reply_to: store.Persist(
                     reply_to=reply_to, id=self.id, events=events, offset=offset
-                )
+                ),
+                timeout=timedelta(seconds=60),
             )
 
             if eff.reply:
@@ -90,7 +92,8 @@ class Persist(Generic[S, C, E]):
 
         state = self.empty_state
         reply = await persister_ref.ask(
-            lambda reply_to: store.Load(reply_to=reply_to, id=self.id)
+            lambda reply_to: store.Load(reply_to=reply_to, id=self.id),
+            timeout=timedelta(seconds=60),
         )
         if isinstance(reply, store.Loaded):
             logger.debug("[%s] Recovering from persisted events.", context.ref)

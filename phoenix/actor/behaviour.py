@@ -7,8 +7,17 @@ import attr
 from attr.validators import instance_of, optional
 import inspect
 import logging
-from pyrsistent import v
-from typing import Any, Callable, Coroutine, Dict, Generic, Optional, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Coroutine,
+    Dict,
+    Generic,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
 from phoenix.actor.lifecycle import PostStop, PreRestart, RestartActor, StopActor
 from phoenix.actor.timers import FixedDelayEnvelope
@@ -101,20 +110,9 @@ class Stop:
 
 @attr.s(frozen=True)
 class Restart:
-    """
-    Restart the Actor if it fails.
-
-    See Akka Behaviours.supervise for ideas.
-    """
-
-    behaviour = attr.ib()
-    name: Optional[str] = attr.ib(validator=optional(instance_of(str)), default=None)
-    max_restarts: Optional[int] = attr.ib(
-        validator=optional(instance_of(int)), default=3
-    )
+    max_restarts: Optional[int] = attr.ib(validator=optional(instance_of(int)))
+    backoff: Callable[[int], Union[float, int]] = attr.ib()
     restarts: int = attr.ib(validator=instance_of(int), default=0)
-    backoff: Callable[[int], Union[float, int]] = attr.ib(default=None)
-    on_lifecycle: Optional[Callable] = attr.ib(default=None)
 
     @max_restarts.validator
     def check(self, attribute: str, value: Optional[int]):
@@ -126,20 +124,107 @@ class Restart:
         if self.max_restarts is not None and self.restarts > self.max_restarts:
             raise ValueError("restarts cannot be greater than max_restarts")
 
+    async def __call__(
+        self, exc: Exception, supervise: "Supervise", current: "Behaviour"
+    ):
+        """
+        Called from the exception handler in the Supervise behaviour.
+
+        Args:
+            exc (Exception): The exception that was caught.
+            supervise (Supervise): The Supervise behaviour executing this strategy.
+            current (Behaviour): The current behaviour being executed.
+        """
+        if self.max_restarts is not None and self.restarts >= self.max_restarts:
+            if current.on_lifecycle:
+                await current.on_lifecycle(PostStop())
+            raise
+
+        if self.backoff:
+            await asyncio.sleep(self.backoff(self.restarts))
+
+        if current.on_lifecycle:
+            behaviour = await current.on_lifecycle(PreRestart())
+            if isinstance(behaviour, Same):
+                behaviour = attr.evolve(
+                    supervise,
+                    failure=attr.evolve(
+                        supervise.failure,
+                        strategy=attr.evolve(self, restarts=self.restarts + 1),
+                    ),
+                )
+        else:
+            behaviour = attr.evolve(
+                supervise,
+                failure=attr.evolve(
+                    supervise.failure,
+                    strategy=attr.evolve(self, restarts=self.restarts + 1),
+                ),
+            )
+
+        raise RestartActor(behaviour=behaviour)
+
+
+@attr.s(frozen=True)
+class RestartStrategy:
+    """
+    The restart supervision strategy.
+
+    Indicates that actors should be restarted after encountering failure.
+    """
+
+    max_restarts: Optional[int] = attr.ib(
+        validator=optional(instance_of(int)), default=3
+    )
+    backoff: Callable[[int], Union[float, int]] = attr.ib(default=None)
+    """
+    A function that should receive the restart count and
+    return a time to wait in seconds.
+
+    Use this to wait for a set period of time before restarting.
+    """
+
+    def __call__(self) -> Restart:
+        return Restart(max_restarts=self.max_restarts, backoff=self.backoff)
+
+
+@attr.s(frozen=True)
+class OnFailure:
+    when: Callable[[Exception], bool] = attr.ib()
+    """
+    A callable that determines whether a given exception
+    should be considered by the supervision strategy.
+
+    Exceptions not considered by this callable are raised
+    through the normal exception behaviour.
+
+    Examples:
+        >>> when = lambda e: isinstance(e, Exception)
+        >>> when(Exception)
+        True
+    """
+    strategy = attr.ib()
+
+
+@attr.s(frozen=True)
+class Supervise:
+    """
+    Supervise the actor and perform actions upon failure.
+
+    See Akka Behaviours.supervise for ideas.
+    """
+
+    behaviour = attr.ib()
+    failure: Optional[OnFailure] = attr.ib(
+        validator=optional(instance_of(OnFailure)), default=None
+    )
+    on_lifecycle: Optional[Callable] = attr.ib(default=None)
+
+    def on_failure(self, when: Callable[[Exception], bool], strategy) -> "Supervise":
+        return attr.evolve(self, failure=OnFailure(when=when, strategy=strategy()))
+
     def with_on_lifecycle(self, on_lifecycle: Callable):
         return attr.evolve(self, on_lifecycle=on_lifecycle)
-
-    def with_max_restarts(self, max_restarts: Optional[int]) -> "Restarts":
-        return attr.evolve(self, max_restarts=max_restarts)
-
-    def with_backoff(self, f: Callable[[int], Union[float, int]]) -> "Restarts":
-        """
-        Use this to wait for a set period of time before restarting.
-
-        ``f`` is a function that should receive the restart count and
-        return a time to wait in seconds.
-        """
-        return attr.evolve(self, backoff=f)
 
     async def execute(self, context):
         logger.debug("[%s] Executing %s", context.ref, self.__class__.__name__)
@@ -162,25 +247,19 @@ class Restart:
                 if current.on_lifecycle:
                     await current.on_lifecycle(PostStop())
                 raise
-            except Exception:
-                if self.max_restarts is not None and self.restarts >= self.max_restarts:
-                    if current.on_lifecycle:
-                        await current.on_lifecycle(PostStop())
+            except Exception as e:
+                logger.warning(
+                    "[%s] Supervise caught exception", context.ref, exc_info=True
+                )
+
+                if not self.failure:
+                    logger.warning("No Supervise on_failure handler configured.")
                     raise
 
-                logger.debug("Restart behaviour caught exception", exc_info=True)
-
-                if self.backoff:
-                    await asyncio.sleep(self.backoff(self.restarts))
-
-                if current.on_lifecycle:
-                    behaviour = await current.on_lifecycle(PreRestart())
-                    if isinstance(behaviour, Same):
-                        behaviour = attr.evolve(self, restarts=self.restarts + 1)
+                if self.failure.when(e):
+                    await self.failure.strategy(e, self, current)
                 else:
-                    behaviour = attr.evolve(self, restarts=self.restarts + 1)
-
-                raise RestartActor(behaviour=behaviour)
+                    raise
             else:
                 if isinstance(next_, Same):
                     behaviours.append(current)
@@ -188,42 +267,4 @@ class Restart:
                     behaviours.append(next_)
 
 
-@attr.s
-class Unstash:
-    messages = attr.ib()
-    behaviour: Receive = attr.ib(validator=instance_of(Receive))
-
-    async def execute(self, context) -> "Behaviour":
-        behaviour = self.behaviour
-        for msg in self.messages:
-            next_ = await behaviour.f(msg)
-            if not isinstance(next_, Same):
-                behaviour = next_
-        return behaviour
-
-
-@attr.s
-class Buffer:
-    capacity: int = attr.ib(validator=instance_of(int))
-    messages = attr.ib(default=v())
-
-    def stash(self, msg) -> "Behaviour":
-        if len(self.messages) == self.capacity:
-            raise ValueError("Buffer capacity overflow.")
-        self.messages = self.messages.append(msg)
-    
-    def unstash(self, behaviour: Receive) -> "Behaviour":
-        return Unstash(messages=self.messages, behaviour=behaviour)
-
-
-@attr.s
-class Stash:
-    f = attr.ib()
-    capacity: int = attr.ib(validator=instance_of(int))
-
-    async def execute(self, context) -> "Behaviour":
-        buffer = Buffer(self.capacity)
-        return await self.f(buffer)
-
-
-Behaviour = Union[Stop, Ignore, Setup, Receive, Same, Stash, Unstash]
+Behaviour = Union[Stop, Ignore, Setup, Receive, Same, Supervise]

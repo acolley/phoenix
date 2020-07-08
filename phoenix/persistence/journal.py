@@ -4,6 +4,7 @@ from attr.validators import instance_of, optional
 import json
 from multipledispatch import dispatch
 from sqlalchemy import create_engine, and_
+from sqlalchemy.exc import OperationalError
 from sqlalchemy_aio import ASYNCIO_STRATEGY
 from typing import Any, Iterable, Optional, Tuple
 
@@ -47,7 +48,6 @@ class ListEventsByPersistenceId:
     persistence_id: PersistenceId = attr.ib(validator=instance_of(PersistenceId))
 
 
-
 # FIXME: Journal querying can be a bottleneck.
 # 1. Make journal querying faster
 #     * Reduce event limit to be queried at once.
@@ -78,7 +78,12 @@ class SqliteReadJournal:
             engine = create_engine(db_url, strategy=ASYNCIO_STRATEGY)
             return SqliteReadJournal.active(engine, decode)
 
-        return behaviour.setup(setup)
+        return behaviour.supervise(behaviour.setup(setup)).on_failure(
+            lambda e: isinstance(e, OperationalError) and "disk I/O error" in str(e),
+            strategy=behaviour.RestartStrategy(
+                max_restarts=None, backoff=lambda n: max(2 ** n, 10),
+            ),
+        )
 
     @staticmethod
     def active(engine, decode) -> Behaviour:

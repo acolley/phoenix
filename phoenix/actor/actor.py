@@ -11,9 +11,9 @@ from phoenix.behaviour import (
     Behaviour,
     Ignore,
     Receive,
-    Restart,
     Same,
     Setup,
+    Supervise,
 )
 from phoenix.persistence.behaviour import Persist
 from phoenix.ref import Ref
@@ -47,7 +47,7 @@ class ActorSpawned:
 @attr.s
 class ActorRestarted:
     ref: Ref = attr.ib(validator=instance_of(Ref))
-    behaviour: Restart = attr.ib(validator=instance_of(Restart))
+    behaviour: Supervise = attr.ib(validator=instance_of(Supervise))
 
 
 @attr.s
@@ -62,7 +62,7 @@ class Actor:
 
     @start.validator
     def check(self, attribute: str, value: Behaviour):
-        if not isinstance(value, (Ignore, Persist, Receive, Restart, Setup)):
+        if not isinstance(value, (Ignore, Persist, Receive, Supervise, Setup)):
             raise ValueError(f"Invalid start behaviour: {value}")
 
     async def run(self):

@@ -2,11 +2,11 @@ from phoenix.actor.behaviour import (
     Behaviour,
     Ignore,
     Receive,
-    Restart,
+    RestartStrategy,
     Same,
     Setup,
-    Stash,
     Stop,
+    Supervise,
 )
 from phoenix.persistence.behaviour import Persist
 
@@ -31,8 +31,8 @@ def stop() -> Stop:
     return Stop()
 
 
-def restart(behaviour) -> Restart:
-    return Restart(behaviour=behaviour)
+def supervise(behaviour) -> Supervise:
+    return Supervise(behaviour=behaviour)
 
 
 def persist(
@@ -46,7 +46,3 @@ def persist(
         encode=encode,
         decode=decode,
     )
-
-
-def stash(f, capacity: int) -> Stash:
-    return Stash(f=f, capacity=capacity)
