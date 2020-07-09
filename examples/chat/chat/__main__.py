@@ -287,7 +287,8 @@ def server():
     logging.basicConfig(level=logging.DEBUG)
     # Issue with default Python 3.8 windows event loop?
     # https://stackoverflow.com/questions/62412754/python-asyncio-errors-oserror-winerror-6-the-handle-is-invalid-and-runtim
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    if sys.platform.startswith("win"):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(_run())
 
 

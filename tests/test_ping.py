@@ -15,14 +15,6 @@ class Ping:
         return behaviour.receive(recv)
 
 
-@pytest.fixture
-async def actor_test_kit():
-    kit = ActorTestKit()
-    await kit.start()
-    yield kit
-    await kit.shutdown()
-
-
 @pytest.mark.asyncio
 async def test_ping(actor_test_kit: ActorTestKit):
     ping = await actor_test_kit.spawn(Ping.start)
