@@ -45,7 +45,7 @@ class ActorCell:
 
             # asyncio.shield allows the task to continue after a first cancelled error.
             # This is to prevent this task being cancelled when the ActorCell task is cancelled.
-            self._task = asyncio.shield(asyncio.create_task(self._actor.run()))
+            self._task = asyncio.shield(asyncio.create_task(self._actor.run(), name=f"actor-{self.context.ref.id}"))
 
             while True:
                 result = await self._task
@@ -108,10 +108,26 @@ class BootstrapActorCell:
     context: actor.ActorContext = attr.ib(validator=instance_of(actor.ActorContext))
 
     async def run(self):
-        act = actor.Actor(start=self.behaviour, context=self.context)
+        try:
+            act = actor.Actor(start=self.behaviour, context=self.context)
 
-        task = asyncio.create_task(act.run())
+            # asyncio.shield allows the task to continue after a first cancelled error.
+            # This is to prevent this task being cancelled when the ActorCell task is cancelled.
+            task = asyncio.shield(asyncio.create_task(act.run(), name=f"actor-{self.context.ref.id}"))
 
-        # Fail fast if we're a bootstrap actor as
-        # we rely on these working correctly.
-        await task
+            # Fail fast if we're a bootstrap actor as
+            # we rely on these working correctly.
+            result = await task
+            await self.handle(result)
+        except (asyncio.CancelledError, Stop):
+            logger.debug("[%s] ActorCell stopping...", self.context.ref)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+            await self.context.timers.cancel_all()
+
+    @dispatch(actor.ActorStopped)
+    async def handle(self, msg: actor.ActorStopped):
+        logger.debug("[%s] ActorCell ActorStopped", self.context.ref)
+
+        raise Stop

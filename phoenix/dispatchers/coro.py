@@ -14,10 +14,12 @@ from phoenix.dispatchers.dispatcher import (
     ActorSpawned,
     ActorStopped,
     RemoveActor,
+    Shutdown,
     SpawnActor,
     StopActor,
 )
 from phoenix.ref import Ref
+from phoenix.result import Success
 
 
 class CoroDispatcher:
@@ -37,7 +39,7 @@ class CoroDispatcher:
         dispatch_namespace = {}
 
         @dispatch(SpawnActor, namespace=dispatch_namespace)
-        async def coro_dispatcher_handle(msg: SpawnActor):
+        async def handle(msg: SpawnActor):
             ref = Ref(id=msg.id, inbox=msg.mailbox(), thread=threading.current_thread())
             cell = ActorCell(
                 behaviour=msg.behaviour(),
@@ -51,12 +53,12 @@ class CoroDispatcher:
                     timers=Timers(ref=ref, lock=asyncio.Lock()),
                 ),
             )
-            task = asyncio.get_event_loop().create_task(cell.run())
+            task = asyncio.get_event_loop().create_task(cell.run(), name=f"cell-{msg.id}")
             await msg.reply_to.tell(ActorSpawned(ref=ref))
             return CoroDispatcher.active(context=context, actors=actors.set(ref, task))
 
         @dispatch(StopActor, namespace=dispatch_namespace)
-        async def coro_dispatcher_handle(msg: SpawnActor):
+        async def handle(msg: SpawnActor):
             task = actors[msg.ref]
             task.cancel()
             # ActorCell should not raise CancelledError
@@ -65,14 +67,22 @@ class CoroDispatcher:
             return CoroDispatcher.active(context=context, actors=actors.remove(msg.ref))
 
         @dispatch(RemoveActor, namespace=dispatch_namespace)
-        async def coro_dispatcher_handle(msg: SpawnActor):
+        async def handle(msg: SpawnActor):
             task = actors[msg.ref]
             # Task is finished or finishing so we wait for it...
             await task
             await msg.reply_to.tell(ActorRemoved(msg.ref))
             return CoroDispatcher.active(context=context, actors=actors.remove(msg.ref))
+        
+        @dispatch(Shutdown, namespace=dispatch_namespace)
+        async def handle(msg: Shutdown):
+            for task in actors.values():
+                task.cancel()
+                await task
+            await msg.reply_to.tell(Success(None))
+            return behaviour.stop()
 
         async def f(msg):
-            return await coro_dispatcher_handle(msg)
+            return await handle(msg)
 
         return behaviour.receive(f)

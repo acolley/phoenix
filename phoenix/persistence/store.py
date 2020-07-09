@@ -95,6 +95,9 @@ class Reader:
     @staticmethod
     def start(engine) -> Behaviour:
         async def recv(msg: Load):
+            # FIXME: if the connection is interrupted by the task
+            # becoming cancelled will this successfully close the
+            # connection?
             async with engine.connect() as conn:
                 async with conn.begin():
                     query = (
@@ -145,7 +148,9 @@ class SqliteStore:
             # Split sqlite store into a single writer and
             # multiple readers due to lack of support for
             # concurrent writing.
-            writer = await context.spawn(partial(Writer.start, engine), "sqlite-store-writer")
+            writer = await context.spawn(
+                partial(Writer.start, engine), "sqlite-store-writer"
+            )
             reader_pool = routers.pool(4)(partial(Reader.start, engine))
             reader = await context.spawn(reader_pool, "sqlite-store-reader")
             return SqliteStore.active(writer, reader)

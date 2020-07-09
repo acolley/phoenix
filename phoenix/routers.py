@@ -60,7 +60,9 @@ class PoolRouter:
         async def f(context):
             workers = v()
             for i in range(size):
-                worker = await context.spawn(worker_behaviour, f"{context.ref.id}-{i}", mailbox=mailbox)
+                worker = await context.spawn(
+                    worker_behaviour, f"{context.ref.id}-{i}", mailbox=mailbox
+                )
                 workers = workers.append(worker)
             return PoolRouter.work(workers, strategy(size))
 
@@ -78,11 +80,17 @@ class PoolRouter:
 
 
 def pool(
-    size: int, strategy: Optional[Callable[[], Callable[[Any], int]]] = None, mailbox = UnboundedMailbox()
+    size: int,
+    strategy: Optional[Callable[[], Callable[[Any], int]]] = None,
+    mailbox=UnboundedMailbox(),
 ) -> Callable[[], Callable[[], Behaviour]]:
     def _factory(worker_behaviour: Behaviour) -> Behaviour:
-        return partial(PoolRouter.start,
-            worker_behaviour, size, RoundRobin() if strategy is None else strategy, mailbox=mailbox
+        return partial(
+            PoolRouter.start,
+            worker_behaviour,
+            size,
+            RoundRobin() if strategy is None else strategy,
+            mailbox=mailbox,
         )
 
     return _factory

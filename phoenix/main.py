@@ -1,4 +1,5 @@
 import abc
+
 # from aiohttp import web
 import asyncio
 from asyncio import Queue, Task
@@ -17,7 +18,7 @@ import traceback
 from typing import Any, Callable, Optional, Union
 
 from phoenix import behaviour, routers, singleton
-from phoenix.behaviour import Behaviour
+from phoenix.behaviour import Behaviour, RestartStrategy
 from phoenix.persistence import effect
 from phoenix.ref import Ref
 from phoenix.system.system import system
@@ -90,7 +91,9 @@ class Batcher:
     @staticmethod
     def start() -> Behaviour:
         async def setup(context):
-            await context.timers.start_fixed_delay_timer(Timeout(), timedelta(seconds=10))
+            await context.timers.start_fixed_delay_timer(
+                Timeout(), timedelta(seconds=10)
+            )
 
             async def stash(buffer):
                 dispatch_namespace = {}
@@ -99,23 +102,26 @@ class Batcher:
                 async def handle(msg: int):
                     buffer.stash(msg)
                     return behaviour.same()
-                
+
                 @dispatch(Timeout, namespace=dispatch_namespace)
                 async def handle(msg: Timeout):
                     return buffer.unstash(Batcher.active())
 
                 async def recv(msg):
                     return await handle(msg)
-                    
+
                 return behaviour.receive(recv)
+
             return behaviour.stash(stash, capacity=10)
+
         return behaviour.setup(setup)
-    
+
     @staticmethod
     def active() -> Behaviour:
         async def recv(msg):
             print(msg)
             return behaviour.same()
+
         return behaviour.receive(recv)
 
 
@@ -275,10 +281,14 @@ class Pong:
         return behaviour.receive(f)
 
 
-@attr.s
-class EchoMsg:
-    reply_to: Ref = attr.ib(validator=instance_of(Ref))
-    message: str = attr.ib(validator=instance_of(str))
+class Echo:
+    @staticmethod
+    def start() -> behaviour.Behaviour:
+        async def recv(msg):
+            m, reply_to = msg
+            await reply_to.tell(m)
+            return behaviour.same()
+        return behaviour.receive(recv)
 
 
 class PingPong:
@@ -342,7 +352,10 @@ class PingPong:
 
             # return PingPong.active(context)
 
-        return behaviour.restart(behaviour.setup(f))
+        return behaviour.supervise(behaviour.setup(f)).on_failure(
+            when=lambda e: isinstance(e, Exception),
+            strategy=RestartStrategy(),
+        )
 
     @staticmethod
     def active(context) -> Behaviour:
@@ -354,6 +367,16 @@ class PingPong:
         return behaviour.receive(f)
 
 
+async def async_main():
+    sys = await system(Echo.start)
+    msg = await sys.ask(lambda reply_to: ("Hello", reply_to))
+    print(msg)
+    await sys.shutdown()
+
+
 def main():
     logging.basicConfig(level=logging.DEBUG)
-    asyncio.run(system(PingPong.start), debug=True)
+    # Issue with default Python 3.8 windows event loop?
+    # https://stackoverflow.com/questions/62412754/python-asyncio-errors-oserror-winerror-6-the-handle-is-invalid-and-runtim
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.run(async_main(), debug=True)

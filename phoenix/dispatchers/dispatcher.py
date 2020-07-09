@@ -46,3 +46,12 @@ class RemoveActor:
 @attr.s
 class ActorRemoved:
     ref: Ref = attr.ib(validator=instance_of(Ref))
+
+
+@attr.s
+class Shutdown:
+    """
+    Shutdown the dispatcher, stopping all actors
+    that were dispatched through it.
+    """
+    reply_to: Ref = attr.ib(validator=instance_of(Ref))
