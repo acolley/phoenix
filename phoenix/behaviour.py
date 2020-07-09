@@ -5,6 +5,7 @@ from phoenix.actor.behaviour import (
     RestartStrategy,
     Same,
     Setup,
+    Stash,
     Stop,
     Supervise,
 )
@@ -46,3 +47,7 @@ def persist(
         encode=encode,
         decode=decode,
     )
+
+
+def stash(f, capacity: int) -> Stash:
+    return Stash(f=f, capacity=capacity)
