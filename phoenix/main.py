@@ -14,6 +14,7 @@ from multipledispatch import dispatch
 from pathlib import Path
 from pyrsistent import m
 import random
+import sys
 import traceback
 from typing import Any, Callable, Optional, Union
 
@@ -21,7 +22,7 @@ from phoenix import behaviour, routers, singleton
 from phoenix.behaviour import Behaviour, RestartStrategy
 from phoenix.persistence import effect
 from phoenix.ref import Ref
-from phoenix.system.system import system
+from phoenix.system.system import ActorSystem
 
 
 def encode(event: Any) -> (str, dict):
@@ -368,10 +369,22 @@ class PingPong:
 
 
 async def async_main():
-    sys = await system(Echo.start)
-    msg = await sys.ask(lambda reply_to: ("Hello", reply_to))
+    async def _wakeup():
+        while True:
+            await asyncio.sleep(1)
+
+    if sys.platform.startswith("win"):
+        # https://github.com/python/asyncio/issues/407
+        # https://stackoverflow.com/questions/27480967/why-does-the-asyncios-event-loop-suppress-the-keyboardinterrupt-on-windows
+        # https://stackoverflow.com/questions/24774980/why-cant-i-catch-sigint-when-asyncio-event-loop-is-running/24775107#24775107
+        # https://gist.github.com/lambdalisue/05d5654bd1ec04992ad316d50924137c
+        asyncio.create_task(_wakeup())
+
+    system = ActorSystem(Echo.start)
+    await system.start()
+    msg = await system.ask(lambda reply_to: ("Hello", reply_to))
     print(msg)
-    await sys.run()
+    await system.run()
 
 
 def main():

@@ -19,6 +19,7 @@ from pyrsistent import m
 import pytz
 from sqlalchemy import create_engine
 from sqlalchemy_aio import ASYNCIO_STRATEGY
+import sys
 from typing import Any, Iterable, Union
 
 from chat import channel
@@ -267,7 +268,18 @@ class Application:
 
 
 def server():
+    async def _wakeup():
+        while True:
+            await asyncio.sleep(1)
+
     async def _run():
+        if sys.platform.startswith("win"):
+            # https://github.com/python/asyncio/issues/407
+            # https://stackoverflow.com/questions/27480967/why-does-the-asyncios-event-loop-suppress-the-keyboardinterrupt-on-windows
+            # https://stackoverflow.com/questions/24774980/why-cant-i-catch-sigint-when-asyncio-event-loop-is-running/24775107#24775107
+            # https://gist.github.com/lambdalisue/05d5654bd1ec04992ad316d50924137c
+            asyncio.create_task(_wakeup())
+
         system = ActorSystem(Application.start)
         await system.start()
         await system.run()
