@@ -53,7 +53,9 @@ class CoroDispatcher:
                     timers=Timers(ref=ref, lock=asyncio.Lock()),
                 ),
             )
-            task = asyncio.get_event_loop().create_task(cell.run(), name=f"cell-{msg.id}")
+            task = asyncio.get_event_loop().create_task(
+                cell.run(), name=f"cell-{msg.id}"
+            )
             await msg.reply_to.tell(ActorSpawned(ref=ref))
             return CoroDispatcher.active(context=context, actors=actors.set(ref, task))
 
@@ -73,7 +75,7 @@ class CoroDispatcher:
             await task
             await msg.reply_to.tell(ActorRemoved(msg.ref))
             return CoroDispatcher.active(context=context, actors=actors.remove(msg.ref))
-        
+
         @dispatch(Shutdown, namespace=dispatch_namespace)
         async def handle(msg: Shutdown):
             for task in actors.values():

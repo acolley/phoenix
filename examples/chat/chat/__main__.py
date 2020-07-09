@@ -14,7 +14,7 @@ from phoenix.persistence import effect
 from phoenix.persistence.journal import SqliteReadJournal
 from phoenix.result import Failure, Success
 from phoenix.ref import Ref
-from phoenix.system.system import system
+from phoenix.system.system import ActorSystem
 from pyrsistent import m
 import pytz
 from sqlalchemy import create_engine
@@ -196,7 +196,7 @@ class Api:
                 await ws.prepare(request)
 
                 subscriber = await context.spawn(
-                    MessageSubscriber.start(
+                    partial(MessageSubscriber.start,
                         channel_id=request.match_info["id"],
                         offset=int(offset) if offset is not None else None,
                         journal=journal,
@@ -267,8 +267,16 @@ class Application:
 
 
 def server():
+    async def _run():
+        system = ActorSystem(Application.start)
+        await system.start()
+        await system.run()
+
     logging.basicConfig(level=logging.DEBUG)
-    asyncio.run(system(Application.start))
+    # Issue with default Python 3.8 windows event loop?
+    # https://stackoverflow.com/questions/62412754/python-asyncio-errors-oserror-winerror-6-the-handle-is-invalid-and-runtim
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.run(_run())
 
 
 def client():

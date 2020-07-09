@@ -18,7 +18,7 @@ class Ping:
 @pytest.fixture
 async def actor_test_kit():
     kit = ActorTestKit()
-    await kit.run()
+    await kit.start()
     yield kit
     await kit.shutdown()
 

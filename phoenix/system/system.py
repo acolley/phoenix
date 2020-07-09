@@ -101,10 +101,21 @@ class ActorSystem:
     db_url: str = attr.ib(default="sqlite:///db")
     user_ref: Optional[Ref] = attr.ib(init=False, default=None)
     system_ref: Optional[Ref] = attr.ib(init=False, default=None)
-    root_task: Optional[asyncio.Task] = attr.ib(init=False, validator=optional(instance_of(asyncio.Task)), default=None)
-    registry_task: Optional[asyncio.Task] = attr.ib(init=False, validator=optional(instance_of(asyncio.Task)), default=None)
 
-    async def run(self):
+    system_task: Optional[asyncio.Task] = attr.ib(
+        init=False, validator=optional(instance_of(asyncio.Task)), default=None
+    )
+    default_dispatcher_task: Optional[asyncio.Task] = attr.ib(
+        init=False, validator=optional(instance_of(asyncio.Task)), default=None
+    )
+    root_task: Optional[asyncio.Task] = attr.ib(
+        init=False, validator=optional(instance_of(asyncio.Task)), default=None
+    )
+    registry_task: Optional[asyncio.Task] = attr.ib(
+        init=False, validator=optional(instance_of(asyncio.Task)), default=None
+    )
+
+    async def start(self):
         """
         System actor manages spawning and stopping actors.
 
@@ -299,16 +310,14 @@ class ActorSystem:
                                 ),
                             )
                         )
-                
+
                 @dispatch(Shutdown, namespace=dispatch_namespace)
                 async def handle(msg: Shutdown):
                     for dispatcher in state.dispatchers.values():
                         await dispatcher.ask(
-                            lambda reply_to: dispatchermsg.Shutdown(
-                                reply_to=reply_to
-                            )
+                            lambda reply_to: dispatchermsg.Shutdown(reply_to=reply_to)
                         )
-                    
+
                     await msg.reply_to.tell(Success(None))
 
                     return behaviour.stop()
@@ -332,12 +341,16 @@ class ActorSystem:
 
             return behaviour.setup(f)
 
-        root_ref = Ref(id="root", inbox=janus.Queue(), thread=threading.current_thread())
+        root_ref = Ref(
+            id="root", inbox=janus.Queue(), thread=threading.current_thread()
+        )
         system_ref = Ref(
             id="system", inbox=janus.Queue(), thread=threading.current_thread()
         )
         default_dispatcher_ref = Ref(
-            id="dispatcher-default", inbox=janus.Queue(), thread=threading.current_thread()
+            id="dispatcher-default",
+            inbox=janus.Queue(),
+            thread=threading.current_thread(),
         )
         registry_ref = Ref(
             id="registry", inbox=janus.Queue(), thread=threading.current_thread()
@@ -396,8 +409,10 @@ class ActorSystem:
             ),
         )
 
-        asyncio.create_task(system_cell.run(), name="system")
-        asyncio.create_task(default_dispatcher_cell.run(), name="default-dispatcher")
+        self.system_task = asyncio.create_task(system_cell.run(), name="system")
+        self.default_dispatcher_task = asyncio.create_task(
+            default_dispatcher_cell.run(), name="default-dispatcher"
+        )
         self.root_task = asyncio.create_task(root_cell.run(), name="root")
         self.registry_task = asyncio.create_task(registry_cell.run(), name="registry")
 
@@ -413,7 +428,9 @@ class ActorSystem:
                 mailbox=BoundedMailbox(100),
             )
         )
-        await registry_ref.tell(registry.Register(key="persister", ref=persister_ref.ref))
+        await registry_ref.tell(
+            registry.Register(key="persister", ref=persister_ref.ref)
+        )
 
         user_ref = await system_ref.ask(
             lambda reply_to: SpawnActor(
@@ -429,13 +446,23 @@ class ActorSystem:
 
         self.user_ref = user_ref.ref
         self.system_ref = system_ref
-    
+
+    async def run(self):
+        await asyncio.gather(
+            self.system_task,
+            self.default_dispatcher_task,
+            self.root_task,
+            self.registry_task,
+        )
+
     async def tell(self, msg: Any):
         await self.user_ref.tell(msg)
-    
-    async def ask(self, f: Callable[["Ref"], Any], timeout: Optional[timedelta] = None) -> Any:
+
+    async def ask(
+        self, f: Callable[["Ref"], Any], timeout: Optional[timedelta] = None
+    ) -> Any:
         return await self.user_ref.ask(f, timeout=timeout)
-    
+
     async def shutdown(self):
         # TODO: clean shutdown
         # 1. Shutdown user actors
@@ -451,6 +478,7 @@ class ActorSystem:
         with contextlib.suppress(asyncio.CancelledError):
             await self.root_task
 
+
 async def system(
     user: Callable[[], Behaviour],
     default_dispatcher: Callable[[], Behaviour] = CoroDispatcher.start,
@@ -459,6 +487,8 @@ async def system(
     """
     Factory for creating and running an ActorSystem.
     """
-    actor_system = ActorSystem(user=user, default_dispatcher=default_dispatcher, db_url=db_url)
-    await actor_system.run()
+    actor_system = ActorSystem(
+        user=user, default_dispatcher=default_dispatcher, db_url=db_url
+    )
+    await actor_system.start()
     return actor_system

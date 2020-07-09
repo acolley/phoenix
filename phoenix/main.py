@@ -288,6 +288,7 @@ class Echo:
             m, reply_to = msg
             await reply_to.tell(m)
             return behaviour.same()
+
         return behaviour.receive(recv)
 
 
@@ -353,8 +354,7 @@ class PingPong:
             # return PingPong.active(context)
 
         return behaviour.supervise(behaviour.setup(f)).on_failure(
-            when=lambda e: isinstance(e, Exception),
-            strategy=RestartStrategy(),
+            when=lambda e: isinstance(e, Exception), strategy=RestartStrategy(),
         )
 
     @staticmethod
@@ -371,7 +371,7 @@ async def async_main():
     sys = await system(Echo.start)
     msg = await sys.ask(lambda reply_to: ("Hello", reply_to))
     print(msg)
-    await sys.shutdown()
+    await sys.run()
 
 
 def main():

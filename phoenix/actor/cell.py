@@ -45,7 +45,11 @@ class ActorCell:
 
             # asyncio.shield allows the task to continue after a first cancelled error.
             # This is to prevent this task being cancelled when the ActorCell task is cancelled.
-            self._task = asyncio.shield(asyncio.create_task(self._actor.run(), name=f"actor-{self.context.ref.id}"))
+            self._task = asyncio.shield(
+                asyncio.create_task(
+                    self._actor.run(), name=f"actor-{self.context.ref.id}"
+                )
+            )
 
             while True:
                 result = await self._task
@@ -113,7 +117,9 @@ class BootstrapActorCell:
 
             # asyncio.shield allows the task to continue after a first cancelled error.
             # This is to prevent this task being cancelled when the ActorCell task is cancelled.
-            task = asyncio.shield(asyncio.create_task(act.run(), name=f"actor-{self.context.ref.id}"))
+            task = asyncio.shield(
+                asyncio.create_task(act.run(), name=f"actor-{self.context.ref.id}")
+            )
 
             # Fail fast if we're a bootstrap actor as
             # we rely on these working correctly.
