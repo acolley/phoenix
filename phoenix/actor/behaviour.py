@@ -7,6 +7,7 @@ import attr
 from attr.validators import instance_of, optional
 import inspect
 import logging
+from pyrsistent import v
 from typing import (
     Any,
     Callable,
