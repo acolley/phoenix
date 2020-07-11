@@ -21,7 +21,7 @@ from typing import (
 )
 
 from phoenix.actor.lifecycle import PostStop, PreRestart, RestartActor, StopActor
-from phoenix.actor.timers import FixedDelayEnvelope
+from phoenix.actor.timers.asyncio import FixedDelayEnvelope
 
 logger = logging.getLogger(__name__)
 

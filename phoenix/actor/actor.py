@@ -6,7 +6,6 @@ from typing import Optional
 
 from phoenix.actor.context import ActorContext
 from phoenix.actor.lifecycle import PreRestart, PostStop, RestartActor, StopActor
-from phoenix.actor.timers import Timers
 from phoenix.behaviour import (
     Behaviour,
     Ignore,

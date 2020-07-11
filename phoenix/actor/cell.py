@@ -7,7 +7,6 @@ from multipledispatch import dispatch
 from typing import Optional
 
 from phoenix.actor import actor
-from phoenix.actor.timers import Timers
 from phoenix.behaviour import Behaviour
 from phoenix.ref import Ref
 from phoenix.system.messages import StopActor

@@ -12,6 +12,7 @@ class Ping:
             m, reply_to = msg
             await reply_to.tell(m)
             return behaviour.stop()
+
         return behaviour.receive(recv)
 
 

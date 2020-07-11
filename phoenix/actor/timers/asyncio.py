@@ -4,23 +4,19 @@ from attr.validators import instance_of
 import contextlib
 from datetime import timedelta
 from pyrsistent import m
+import time
 from typing import Any, Optional
 import uuid
 
+from phoenix.actor.timers.protocol import FixedDelayEnvelope
 from phoenix.ref import Ref
 
 
-@attr.s(frozen=True)
-class FixedDelayEnvelope:
-    msg: Any = attr.ib()
-    event: asyncio.Event = attr.ib(validator=instance_of(asyncio.Event))
-
-
 @attr.s
-class Timers:
+class AsyncioScheduler:
     ref: Ref = attr.ib(validator=instance_of(Ref))
     lock: asyncio.Lock = attr.ib(validator=instance_of(asyncio.Lock))
-    _timers = attr.ib(init=False, default=m())
+    timers = attr.ib(init=False, default=m())
 
     async def start_fixed_rate_timer(
         self,
@@ -48,10 +44,10 @@ class Timers:
                 await self.ref.tell(message)
 
         async with self.lock:
-            if name in self._timers:
+            if name in self.timers:
                 raise ValueError(f"Timer `{name}` already exists.")
 
-            self._timers = self._timers.set(
+            self.timers = self.timers.set(
                 name, asyncio.get_event_loop().create_task(_fixed_rate_timer())
             )
 
@@ -79,10 +75,10 @@ class Timers:
                 await event.wait()
 
         async with self.lock:
-            if name in self._timers:
+            if name in self.timers:
                 raise ValueError(f"Timer `{name}` already exists.")
 
-            self._timers = self._timers.set(
+            self.timers = self.timers.set(
                 name, asyncio.get_event_loop().create_task(_fixed_delay_timer())
             )
 
@@ -97,25 +93,25 @@ class Timers:
             await self.cancel(name)
 
         async with self.lock:
-            if name in self._timers:
+            if name in self.timers:
                 raise ValueError(f"Timer `{name}` already exists.")
 
-            self._timers = self._timers.set(
+            self.timers = self.timers.set(
                 name, asyncio.get_event_loop().create_task(_single_shot_timer())
             )
 
     async def cancel(self, name: str):
         async with self.lock:
-            timer = self._timers[name]
-            timer = self._timers.pop(name)
+            timer = self.timers[name]
+            timer = self.timers.pop(name)
             timer.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await timer
-            self._timers = self._timers.remove(name)
+            self.timers = self.timers.remove(name)
 
     async def cancel_all(self):
         async with self.lock:
-            timers = self._timers
+            timers = self.timers
             names = list(timers.keys())
             while names:
                 name = names.pop()
@@ -124,4 +120,4 @@ class Timers:
                 with contextlib.suppress(asyncio.CancelledError):
                     await timer
                 timers = timers.remove(name)
-            self._timers = timers
+            self.timers = timers

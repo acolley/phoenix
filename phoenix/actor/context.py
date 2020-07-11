@@ -6,7 +6,7 @@ import threading
 from typing import Any, Awaitable, Callable, List, Optional
 import uuid
 
-from phoenix.actor.timers import Timers
+from phoenix.actor.timers.asyncio import AsyncioScheduler
 from phoenix.behaviour import Behaviour
 from phoenix.mailbox import BoundedMailbox, UnboundedMailbox
 from phoenix.result import Failure, Success
@@ -45,7 +45,7 @@ class ActorContext:
 
     registry: Optional[Ref] = attr.ib(validator=optional(instance_of(Ref)))
 
-    timers: Timers = attr.ib(validator=instance_of(Timers))
+    timers: AsyncioScheduler = attr.ib(validator=instance_of(AsyncioScheduler))
 
     children: List[Ref] = attr.ib(default=v())
 

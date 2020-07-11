@@ -7,7 +7,7 @@ import threading
 from phoenix import behaviour
 from phoenix.actor.cell import ActorCell
 from phoenix.actor.context import ActorContext
-from phoenix.actor.timers import Timers
+from phoenix.actor.timers.asyncio import AsyncioScheduler
 from phoenix.behaviour import Behaviour
 from phoenix.dispatchers.dispatcher import (
     ActorRemoved,
@@ -50,7 +50,7 @@ class CoroDispatcher:
                     loop=asyncio.get_event_loop(),
                     system=context.system,
                     registry=context.registry,
-                    timers=Timers(ref=ref, lock=asyncio.Lock()),
+                    timers=AsyncioScheduler(ref=ref, lock=asyncio.Lock()),
                 ),
             )
             task = asyncio.get_event_loop().create_task(

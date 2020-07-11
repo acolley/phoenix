@@ -18,7 +18,7 @@ from phoenix import behaviour, registry, routers
 from phoenix.actor import cell
 from phoenix.actor.actor import ActorContext
 from phoenix.actor.cell import ActorCell, BootstrapActorCell
-from phoenix.actor.timers import Timers
+from phoenix.actor.timers.asyncio import AsyncioScheduler
 from phoenix.behaviour import Behaviour
 from phoenix.dispatchers import dispatcher as dispatchermsg
 from phoenix.dispatchers.coro import CoroDispatcher
@@ -368,7 +368,7 @@ class ActorSystem:
                 loop=asyncio.get_event_loop(),
                 system=system_ref,
                 registry=registry_ref,
-                timers=Timers(ref=root_ref, lock=asyncio.Lock()),
+                timers=AsyncioScheduler(ref=root_ref, lock=asyncio.Lock()),
             ),
         )
 
@@ -381,7 +381,9 @@ class ActorSystem:
                 loop=asyncio.get_event_loop(),
                 system=system_ref,
                 registry=registry_ref,
-                timers=Timers(ref=default_dispatcher_ref, lock=asyncio.Lock()),
+                timers=AsyncioScheduler(
+                    ref=default_dispatcher_ref, lock=asyncio.Lock()
+                ),
             ),
         )
         system_cell = BootstrapActorCell(
@@ -393,7 +395,7 @@ class ActorSystem:
                 loop=asyncio.get_event_loop(),
                 system=system_ref,  # self-reference
                 registry=registry_ref,
-                timers=Timers(ref=system_ref, lock=asyncio.Lock()),
+                timers=AsyncioScheduler(ref=system_ref, lock=asyncio.Lock()),
             ),
         )
         registry_cell = BootstrapActorCell(
@@ -405,7 +407,7 @@ class ActorSystem:
                 loop=asyncio.get_event_loop(),
                 system=system_ref,
                 registry=None,
-                timers=Timers(ref=registry_ref, lock=asyncio.Lock()),
+                timers=AsyncioScheduler(ref=registry_ref, lock=asyncio.Lock()),
             ),
         )
 
