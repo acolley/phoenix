@@ -9,7 +9,7 @@ from multipledispatch import dispatch
 from typing import Callable, Coroutine, Generic, Optional, Set, TypeVar
 
 from phoenix import registry
-from phoenix.actor.timers.asyncio import FixedDelayEnvelope
+from phoenix.actor.scheduler import FixedDelayEnvelope
 from phoenix.persistence import effect, store
 from phoenix.persistence.persistence_id import PersistenceId
 

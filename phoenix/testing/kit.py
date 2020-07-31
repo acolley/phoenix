@@ -4,7 +4,7 @@ from datetime import timedelta
 import janus
 from multipledispatch import dispatch
 import threading
-from typing import Optional
+from typing import Callable, Optional
 import uuid
 
 from phoenix import behaviour
@@ -59,7 +59,9 @@ class Probe:
 
 
 class ActorTestKit:
-    def __init__(self):
+    def __init__(
+        self,
+    ):
         self.system = None
 
     async def start(self):

@@ -36,14 +36,11 @@ async def test_cancel(scheduler: ManualTimeScheduler, ref: Ref):
         ),
         cancelled=s("test"),
     )
-    
+
     await scheduler.advance_time(timedelta(seconds=0.1))
 
     assert scheduler == ManualTimeScheduler(
-        ref=ref,
-        resolution=0.1,
-        timers=m(),
-        cancelled=s(),
+        ref=ref, resolution=0.1, timers=m(), cancelled=s(),
     )
 
 

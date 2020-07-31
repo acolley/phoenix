@@ -8,12 +8,17 @@ import time
 from typing import Any, Optional
 import uuid
 
-from phoenix.actor.timers.protocol import FixedDelayEnvelope
 from phoenix.ref import Ref
 
 
+@attr.s(frozen=True)
+class FixedDelayEnvelope:
+    msg: Any = attr.ib()
+    event: asyncio.Event = attr.ib(validator=instance_of(asyncio.Event))
+
+
 @attr.s
-class AsyncioScheduler:
+class Scheduler:
     ref: Ref = attr.ib(validator=instance_of(Ref))
     lock: asyncio.Lock = attr.ib(validator=instance_of(asyncio.Lock))
     timers = attr.ib(init=False, default=m())
@@ -88,7 +93,7 @@ class AsyncioScheduler:
         name = name or str(uuid.uuid1())
 
         async def _single_shot_timer():
-            asyncio.sleep(delay.total_seconds())
+            await asyncio.sleep(delay.total_seconds())
             await self.ref.tell(message)
             await self.cancel(name)
 

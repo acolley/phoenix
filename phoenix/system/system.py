@@ -18,7 +18,7 @@ from phoenix import behaviour, registry, routers
 from phoenix.actor import cell
 from phoenix.actor.actor import ActorContext
 from phoenix.actor.cell import ActorCell, BootstrapActorCell
-from phoenix.actor.timers.asyncio import AsyncioScheduler
+from phoenix.actor.scheduler import Scheduler
 from phoenix.behaviour import Behaviour
 from phoenix.dispatchers import dispatcher as dispatchermsg
 from phoenix.dispatchers.coro import CoroDispatcher
@@ -99,6 +99,7 @@ class ActorSystem:
     user: Callable[[], Behaviour] = attr.ib()
     default_dispatcher: Callable[[], Behaviour] = attr.ib(default=CoroDispatcher.start)
     db_url: str = attr.ib(default="sqlite:///db")
+
     user_ref: Optional[Ref] = attr.ib(init=False, default=None)
     system_ref: Optional[Ref] = attr.ib(init=False, default=None)
 
@@ -368,7 +369,7 @@ class ActorSystem:
                 loop=asyncio.get_event_loop(),
                 system=system_ref,
                 registry=registry_ref,
-                timers=AsyncioScheduler(ref=root_ref, lock=asyncio.Lock()),
+                timers=Scheduler(ref=root_ref, lock=asyncio.Lock()),
             ),
         )
 
@@ -381,9 +382,7 @@ class ActorSystem:
                 loop=asyncio.get_event_loop(),
                 system=system_ref,
                 registry=registry_ref,
-                timers=AsyncioScheduler(
-                    ref=default_dispatcher_ref, lock=asyncio.Lock()
-                ),
+                timers=Scheduler(ref=default_dispatcher_ref, lock=asyncio.Lock()),
             ),
         )
         system_cell = BootstrapActorCell(
@@ -395,7 +394,7 @@ class ActorSystem:
                 loop=asyncio.get_event_loop(),
                 system=system_ref,  # self-reference
                 registry=registry_ref,
-                timers=AsyncioScheduler(ref=system_ref, lock=asyncio.Lock()),
+                timers=Scheduler(ref=system_ref, lock=asyncio.Lock()),
             ),
         )
         registry_cell = BootstrapActorCell(
@@ -407,7 +406,7 @@ class ActorSystem:
                 loop=asyncio.get_event_loop(),
                 system=system_ref,
                 registry=None,
-                timers=AsyncioScheduler(ref=registry_ref, lock=asyncio.Lock()),
+                timers=Scheduler(ref=registry_ref, lock=asyncio.Lock()),
             ),
         )
 

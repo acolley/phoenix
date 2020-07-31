@@ -6,7 +6,7 @@ import pytest
 import threading
 
 from phoenix.actor.timers.manual import ManualFixedDelayTimer, ManualTimeScheduler
-from phoenix.actor.timers.protocol import FixedDelayEnvelope
+from phoenix.actor.timers.scheduler import FixedDelayEnvelope
 from phoenix.ref import Ref
 
 
@@ -97,7 +97,7 @@ async def test_fixed_delay(scheduler: ManualTimeScheduler, ref: Ref):
 
     with pytest.raises(asyncio.QueueEmpty):
         ref.inbox.async_q.get_nowait()
-    
+
     msg.event.set()
 
     await scheduler.advance_time(timedelta(seconds=2.1))
