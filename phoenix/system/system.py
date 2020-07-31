@@ -2,6 +2,7 @@ import asyncio
 from asyncio import Queue, Task
 import attr
 from attr.validators import deep_iterable, deep_mapping, instance_of, optional
+import concurrent.futures
 import contextlib
 from datetime import timedelta
 from functools import partial
@@ -99,6 +100,12 @@ class ActorSystem:
     user: Callable[[], Behaviour] = attr.ib()
     default_dispatcher: Callable[[], Behaviour] = attr.ib(default=CoroDispatcher.start)
     db_url: str = attr.ib(default="sqlite:///db")
+
+    executor: concurrent.futures.Executor = attr.ib(
+        init=False,
+        validator=optional(instance_of(concurrent.futures.Executor)),
+        default=None,
+    )
 
     user_ref: Optional[Ref] = attr.ib(init=False, default=None)
     system_ref: Optional[Ref] = attr.ib(init=False, default=None)
@@ -360,6 +367,8 @@ class ActorSystem:
         # FIXME: What happens when the application is asked to shut down?
         # FIXME: How do these bootstrapped actors stop gracefully?
 
+        self.executor = concurrent.futures.ProcessPoolExecutor()
+
         root_cell = BootstrapActorCell(
             behaviour=behaviour.ignore(),
             context=ActorContext(
@@ -367,6 +376,7 @@ class ActorSystem:
                 parent=None,
                 thread=threading.current_thread(),
                 loop=asyncio.get_event_loop(),
+                executor=self.executor,
                 system=system_ref,
                 registry=registry_ref,
                 timers=Scheduler(ref=root_ref, lock=asyncio.Lock()),
@@ -380,6 +390,7 @@ class ActorSystem:
                 parent=system_ref,
                 thread=threading.current_thread(),
                 loop=asyncio.get_event_loop(),
+                executor=self.executor,
                 system=system_ref,
                 registry=registry_ref,
                 timers=Scheduler(ref=default_dispatcher_ref, lock=asyncio.Lock()),
@@ -392,6 +403,7 @@ class ActorSystem:
                 parent=root_ref,
                 thread=threading.current_thread(),
                 loop=asyncio.get_event_loop(),
+                executor=self.executor,
                 system=system_ref,  # self-reference
                 registry=registry_ref,
                 timers=Scheduler(ref=system_ref, lock=asyncio.Lock()),
@@ -404,6 +416,7 @@ class ActorSystem:
                 parent=system_ref,
                 thread=threading.current_thread(),
                 loop=asyncio.get_event_loop(),
+                executor=self.executor,
                 system=system_ref,
                 registry=None,
                 timers=Scheduler(ref=registry_ref, lock=asyncio.Lock()),
@@ -449,12 +462,15 @@ class ActorSystem:
         self.system_ref = system_ref
 
     async def run(self):
-        await asyncio.gather(
-            self.system_task,
-            self.default_dispatcher_task,
-            self.root_task,
-            self.registry_task,
-        )
+        try:
+            await asyncio.gather(
+                self.system_task,
+                self.default_dispatcher_task,
+                self.root_task,
+                self.registry_task,
+            )
+        finally:
+            self.executor.shutdown()
 
     async def tell(self, msg: Any):
         await self.user_ref.tell(msg)
@@ -478,6 +494,7 @@ class ActorSystem:
             await self.registry_task
         with contextlib.suppress(asyncio.CancelledError):
             await self.root_task
+        self.executor.shutdown()
 
 
 async def system(

@@ -16,6 +16,20 @@ from phoenix.persistence.persistence_id import PersistenceId
 logger = logging.getLogger(__name__)
 
 
+def _recover(decode, event_handler, events, state):
+    for event in events:
+        data = json.loads(event.data)
+        event = decode(topic_id=event.topic_id, data=data)
+        state = event_handler(state, event)
+    return state
+
+
+def _apply(event_handler, state, events):
+    for event in events:
+        state = event_handler(state, event)
+    return state
+
+
 S = TypeVar("S")
 C = TypeVar("C")
 E = TypeVar("E")
@@ -70,14 +84,20 @@ class Persist(Generic[S, C, E]):
                 lambda reply_to: store.Persist(
                     reply_to=reply_to, id=self.id, events=events, offset=offset
                 ),
-                timeout=timedelta(seconds=60),
             )
 
             if eff.reply:
                 await execute_effect(state, eff.reply, offset)
 
-            for event in eff.events:
-                state = await self.event_handler(state, event)
+            state = await asyncio.get_event_loop().run_in_executor(
+                context.executor,
+                partial(
+                    _apply,
+                    event_handler=self.event_handler,
+                    state=state,
+                    events=eff.events,
+                ),
+            )
 
             return state, reply.offset + 1
 
@@ -93,18 +113,21 @@ class Persist(Generic[S, C, E]):
         state = self.empty_state
         reply = await persister_ref.ask(
             lambda reply_to: store.Load(reply_to=reply_to, id=self.id),
-            timeout=timedelta(seconds=60),
         )
         if isinstance(reply, store.Loaded):
             logger.debug("[%s] Recovering from persisted events.", context.ref)
-            for event in reply.events:
-                data = await asyncio.get_event_loop().run_in_executor(
-                    None, partial(json.loads, event.data)
-                )
-                event = await asyncio.get_event_loop().run_in_executor(
-                    None, partial(self.decode, topic_id=event.topic_id, data=data)
-                )
-                state = await self.event_handler(state, event)
+
+            state = await asyncio.get_event_loop().run_in_executor(
+                context.executor,
+                partial(
+                    _recover,
+                    decode=self.decode,
+                    event_handler=self.event_handler,
+                    events=reply.events,
+                    state=state,
+                ),
+            )
+
             offset = reply.offset + 1
         else:
             offset = 0

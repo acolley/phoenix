@@ -59,9 +59,7 @@ class Probe:
 
 
 class ActorTestKit:
-    def __init__(
-        self,
-    ):
+    def __init__(self,):
         self.system = None
 
     async def start(self):

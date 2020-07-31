@@ -48,6 +48,7 @@ class CoroDispatcher:
                     parent=msg.parent,
                     thread=threading.current_thread(),
                     loop=asyncio.get_event_loop(),
+                    executor=context.executor,
                     system=context.system,
                     registry=context.registry,
                     timers=Scheduler(ref=ref, lock=asyncio.Lock()),

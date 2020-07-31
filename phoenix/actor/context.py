@@ -1,6 +1,7 @@
 import asyncio
 import attr
 from attr.validators import instance_of, optional
+import concurrent.futures
 from pyrsistent import v
 import threading
 from typing import Any, Awaitable, Callable, List, Optional
@@ -37,6 +38,10 @@ class ActorContext:
     """
     The event loop that is executing this Actor.
     """
+
+    executor: concurrent.futures.Executor = attr.ib(
+        validator=instance_of(concurrent.futures.Executor)
+    )
 
     system: Ref = attr.ib(validator=instance_of(Ref))
     """

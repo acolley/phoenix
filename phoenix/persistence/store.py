@@ -1,7 +1,9 @@
 import asyncio
 import attr
 from attr.validators import deep_iterable, instance_of
+import concurrent.futures
 from functools import partial
+import logging
 from multipledispatch import dispatch
 from sqlalchemy import create_engine, and_
 from sqlalchemy_aio import ASYNCIO_STRATEGY
@@ -12,6 +14,8 @@ from phoenix.behaviour import Behaviour
 from phoenix.persistence.db import events_table, event_tags_table, metadata
 from phoenix.persistence.persistence_id import PersistenceId
 from phoenix.ref import Ref
+
+logger = logging.getLogger(__name__)
 
 
 @attr.s
@@ -61,43 +65,59 @@ class NotFound:
     pass
 
 
+def _persist(db_url: str, id: PersistenceId, offset: int, events: Iterable[Event]):
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        with conn.begin():
+            for i, event in enumerate(events):
+                result = conn.execute(
+                    events_table.insert().values(
+                        id=None,
+                        type=id.type_,
+                        entity_id=id.entity_id,
+                        offset=offset + i,
+                        topic_id=event.topic_id,
+                        data=event.data,
+                    )
+                )
+                [event_id] = result.inserted_primary_key
+                for tag in event.tags:
+                    conn.execute(
+                        event_tags_table.insert().values(
+                            id=None, event_id=event_id, tag=tag,
+                        )
+                    )
+    return offset + i
+
+
 class Writer:
     @staticmethod
-    def start(engine) -> Behaviour:
-        async def recv(msg: Persist):
-            async with engine.connect() as conn:
-                async with conn.begin():
-                    for i, event in enumerate(msg.events):
-                        result = await conn.execute(
-                            events_table.insert().values(
-                                id=None,
-                                type=msg.id.type_,
-                                entity_id=msg.id.entity_id,
-                                offset=msg.offset + i,
-                                topic_id=event.topic_id,
-                                data=event.data,
-                            )
-                        )
-                        [event_id] = result.inserted_primary_key
-                        for tag in event.tags:
-                            await conn.execute(
-                                event_tags_table.insert().values(
-                                    id=None, event_id=event_id, tag=tag,
-                                )
-                            )
-            await msg.reply_to.tell(Persisted(msg.offset + i))
-            return behaviour.same()
+    def start(db_url: str) -> Behaviour:
+        async def setup(context):
+            async def recv(msg: Persist):
+                with concurrent.futures.ProcessPoolExecutor() as pool:
+                    result = await asyncio.get_event_loop().run_in_executor(
+                        context.executor,
+                        partial(
+                            _persist,
+                            db_url=db_url,
+                            id=msg.id,
+                            offset=msg.offset,
+                            events=msg.events,
+                        ),
+                    )
+                await msg.reply_to.tell(Persisted(result))
+                return behaviour.same()
 
-        return behaviour.receive(recv)
+            return behaviour.receive(recv)
+
+        return behaviour.setup(setup)
 
 
 class Reader:
     @staticmethod
     def start(engine) -> Behaviour:
         async def recv(msg: Load):
-            # FIXME: if the connection is interrupted by the task
-            # becoming cancelled will this successfully close the
-            # connection?
             async with engine.connect() as conn:
                 async with conn.begin():
                     query = (
@@ -142,6 +162,8 @@ class SqliteStore:
             result, *_ = await result.fetchone()
             if result != "wal":
                 raise ValueError("sqlite database does not support WAL mode.")
+            await engine.execute("PRAGMA default_cache_size=200000")
+            await engine.execute("PRAGMA page_size=4096")
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda: metadata.create_all(bind=engine.sync_engine)
             )
@@ -149,7 +171,7 @@ class SqliteStore:
             # multiple readers due to lack of support for
             # concurrent writing.
             writer = await context.spawn(
-                partial(Writer.start, engine), "sqlite-store-writer"
+                partial(Writer.start, db_url), "sqlite-store-writer"
             )
             reader_pool = routers.pool(4)(partial(Reader.start, engine))
             reader = await context.spawn(reader_pool, "sqlite-store-reader")
