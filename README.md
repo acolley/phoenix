@@ -1,8 +1,13 @@
-# Goals
+# Description
+
+Phoenix is an experimental [actor](https://en.wikipedia.org/wiki/Actor_model) framework for Python.
+
+It is heavily-inspired by [Akka](https://akka.io/).
+
+# Features
 
 * Create robust, fault-tolerant concurrent systems.
 * Actor model of concurrency.
-* Routers for allowing a single actor to process multiple messages concurrently.
 * (TODO) Prevent cycles in actor hierarchy.
 * Actors are multiplexed onto coroutines.
 * (TODO) Actors are multiplexed onto processes.
@@ -12,9 +17,9 @@
 * (TODO) Dependency injection.
 * (TODO) Rate-limiting
 * Observability
-    * Metrics
-        * Inbox sizes
-        * Memory usage
-        * Latency
-        * Message rates
+    * (TODO) Metrics
+        * (TODO) Inbox sizes
+        * (TODO) Memory usage
+        * (TODO) Latency
+        * (TODO) Message rates
     * Logging
