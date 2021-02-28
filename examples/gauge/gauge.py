@@ -3,7 +3,7 @@ import attr
 from attr.validators import instance_of
 import logging
 from multipledispatch import dispatch
-from phoenix import ActorId, ActorSystem, Behaviour
+from phoenix import ActorId, ActorSystem, Behaviour, Down
 import sys
 from typing import Tuple
 
@@ -102,11 +102,11 @@ class Application:
         await state.ctx.cast(msg.reply_to, resp)
         return Behaviour.done, state
     
-    # @staticmethod
-    # @dispatch(State, Down)
-    # async def handle(state: State, msg: Down):
-    #     gauge = Gauge.start(state.ctx)
-    #     return Gauge.State(ctx=state.ctx, gauge=gauge)
+    @staticmethod
+    @dispatch(State, Down)
+    async def handle(state: State, msg: Down):
+        gauge = Gauge.start(state.ctx)
+        return Behaviour.done, Gauge.State(ctx=state.ctx, gauge=gauge)
     
     async def inc_gauge(self):
         await self.ctx.cast(self.id, self.IncGauge())
@@ -117,10 +117,11 @@ class Application:
 
 async def main_async():
     system = ActorSystem()
+    task = asyncio.create_task(system.run())
     app = Application.start(system)
     await app.inc_gauge()
     print(await app.read_gauge())
-    await system.run()
+    await system.shutdown()
 
 
 def main():

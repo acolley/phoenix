@@ -36,10 +36,10 @@ class Error:
     exc: Exception = attr.ib(validator=instance_of(Exception))
 
 
-Exit = Union[Stop, Error]
+ExitReason = Union[Stop, Error]
 
 
-async def run_actor(context, queue, start, handler) -> Tuple[ActorId, Exit]:
+async def run_actor(context, queue, start, handler) -> Tuple[ActorId, ExitReason]:
     try:
         state = await start(context)
     except asyncio.CancelledError:
@@ -81,6 +81,15 @@ class ActorExists(Exception):
     pass
 
 
+@attr.s
+class Down:
+    """
+    Message sent to a watcher when the watched exits.
+    """
+    id: ActorId = attr.ib(validator=instance_of(ActorId))
+    reason: ExitReason = attr.ib()
+
+
 class ActorSystem:
     def __init__(self):
         self.event_loop = asyncio.get_running_loop()
@@ -90,32 +99,40 @@ class ActorSystem:
     async def run(self):
         while True:
             for coro in asyncio.as_completed([actor.task for actor in self.actors.values()]):
-                id, exit_ = await coro
+                id, exit_reason = await coro
                 break
             
             del self.actors[id]
             logger.debug("[%s] Actor Removed", str(id))
-            # watchers = self.watchers.pop(id, [])
-            # for watcher in watchers:
-            #     await watcher.cast(Down(actor.ref, reason="stopped"))
+            watchers = self.watchers.pop(id, [])
+            for watcher in watchers:
+                await self.cast(watcher, Down(id, reason=exit_reason))
 
     def spawn(self, start, handler, name=None) -> str:
+        """
+        Note: not thread-safe.
+        """
         id = ActorId(name or str(uuid.uuid1()))
         if id in self.actors:
             raise ActorExists(id)
-        # NOTE: not thread safe!
         queue = Queue()
         context = Context(id=id, system=self)
         task = self.event_loop.create_task(run_actor(context, queue, start, handler))
         self.actors[id] = Actor(queue=queue, task=task)
         return id
     
-    def watch(self, watcher, watched):
-        # NOTE: not thread safe!
+    def watch(self, watcher: ActorId, watched: ActorId):
+        """
+        Note: not thread-safe.
+        """
+        if watched not in self.actors:
+            raise NoSuchActor(watched)
         self.watchers[watched].append(watcher)
     
     async def cast(self, id, msg):
-        # NOTE: not thread safe!
+        """
+        Note: not thread-safe.
+        """
         try:
             actor = self.actors[id]
         except KeyError:
@@ -123,6 +140,9 @@ class ActorSystem:
         await actor.queue.put(msg)
     
     async def call(self, id, f):
+        """
+        Note: not thread-safe.
+        """
         try:
             actor = self.actors[id]
         except KeyError:
@@ -146,11 +166,12 @@ class ActorSystem:
         return reply
     
     async def shutdown(self):
-        for task in self.actor_tasks:
-            task.cancel()
-            await task
-        self.event_loop.stop()
-        self.event_loop.close()
+        for actor in list(self.actors.values()):
+            actor.task.cancel()
+            try:
+                await actor.task
+            except asyncio.CancelledError:
+                pass
 
 
 @attr.s
@@ -169,3 +190,6 @@ class Context:
     
     def spawn(self, start, handle, name=None) -> ActorId:
         return self.system.spawn(start, handle, name=name)
+    
+    def watch(self, id: ActorId):
+        self.system.watch(self.id, id)
