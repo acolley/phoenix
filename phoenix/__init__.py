@@ -8,9 +8,17 @@ import logging
 from multipledispatch import dispatch
 import threading
 import uuid
-from typing import Optional
+from typing import Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
+
+
+@attr.s(frozen=True)
+class ActorId:
+    value: str = attr.ib(validator=instance_of(str))
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class Behaviour(Enum):
@@ -28,50 +36,40 @@ class Error:
     exc: Exception = attr.ib(validator=instance_of(Exception))
 
 
-@attr.s
-class Context:
-    """
-    A handle to the runtime context of an actor.
-    """
-    system = attr.ib()
-
-    async def cast(self, id, msg):
-        await self.system.cast(id, msg)
-    
-    async def call(self, id, msg):
-        return await self.system.call(id, msg)
+Exit = Union[Stop, Error]
 
 
-async def run_actor(context, queue, start, handler):
+async def run_actor(context, queue, start, handler) -> Tuple[ActorId, Exit]:
     try:
         state = await start(context)
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        logger.debug("", exc_info=True)
-        return Error(e)
+        logger.debug("[%s]", str(context.id), exc_info=True)
+        return context.id, Error(e)
     while True:
         msg = await queue.get()
-        logger.debug(str(msg))
+        logger.debug("[%s] Received: [%s]", str(context.id), str(msg))
         try:
             behaviour, state = await handler(state, msg)
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.debug("", exc_info=True)
-            return Error(e)
-        queue.task_done()
-        logger.debug(str(behaviour))
+            logger.debug("[%s]", str(context.id), exc_info=True)
+            return context.id, Error(e)
+        logger.debug("[%s] %s", str(context.id), str(behaviour))
         if behaviour == Behaviour.done:
+            queue.task_done()
             continue
         elif behaviour == Behaviour.stop:
-            return Stop()
+            return context.id, Stop()
         else:
             raise ValueError(f"Unsupported behaviour: {behaviour}")
 
 
 @attr.s
 class Actor:
+    queue: asyncio.Queue = attr.ib(validator=instance_of(asyncio.Queue))
     task: asyncio.Task = attr.ib(validator=instance_of(asyncio.Task))
 
 
@@ -79,38 +77,37 @@ class NoSuchActor(Exception):
     pass
 
 
-@attr.s
-class Cast:
-    msg = attr.ib()
-
-
-@attr.s
-class Call:
-    reply_to: asyncio.Queue = attr.ib(validator=instance_of(asyncio.Queue))
-    msg = attr.ib()
+class ActorExists(Exception):
+    pass
 
 
 class ActorSystem:
-    def __init__(self, user):
+    def __init__(self):
         self.event_loop = asyncio.get_running_loop()
         self.actors = {}
         self.watchers = defaultdict(list)
 
     async def run(self):
         while True:
-            for id, actor in self.actors.items():
-                exit_ = await actor.task
-                watchers = self.watchers.pop(id, [])
-                for watcher in watchers:
-                    await watcher.cast(Down(actor.ref, reason="stopped"))
+            for coro in asyncio.as_completed([actor.task for actor in self.actors.values()]):
+                id, exit_ = await coro
+                break
+            
+            del self.actors[id]
+            logger.debug("[%s] Actor Removed", str(id))
+            # watchers = self.watchers.pop(id, [])
+            # for watcher in watchers:
+            #     await watcher.cast(Down(actor.ref, reason="stopped"))
 
     def spawn(self, start, handler, name=None) -> str:
+        id = ActorId(name or str(uuid.uuid1()))
+        if id in self.actors:
+            raise ActorExists(id)
         # NOTE: not thread safe!
         queue = Queue()
-        context = Context(system=self)
+        context = Context(id=id, system=self)
         task = self.event_loop.create_task(run_actor(context, queue, start, handler))
-        id = name or str(uuid.uuid1())
-        self.actors[id] = Actor(task=task)
+        self.actors[id] = Actor(queue=queue, task=task)
         return id
     
     def watch(self, watcher, watched):
@@ -123,17 +120,30 @@ class ActorSystem:
             actor = self.actors[id]
         except KeyError:
             raise NoSuchActor(id)
-        # Does not block if queue is full
-        await actor.queue.put(Cast(msg))
+        await actor.queue.put(msg)
     
-    async def call(self, id, msg):
+    async def call(self, id, f):
         try:
             actor = self.actors[id]
         except KeyError:
             raise NoSuchActor(id)
-        reply_to = asyncio.Queue()
-        await actor.queue.put(Call(reply_to, msg))
-        return await reply_to.get()
+        
+        async def _start(ctx):
+            return None
+        
+        reply = None
+        received = asyncio.Event()
+        async def _handle(state: None, msg):
+            nonlocal reply
+            reply = msg
+            received.set()
+            return Behaviour.stop, state
+
+        reply_to = self.spawn(_start, _handle, name=f"{id}->{uuid.uuid1()}")
+        msg = f(reply_to)
+        await actor.queue.put(msg)
+        await received.wait()
+        return reply
     
     async def shutdown(self):
         for task in self.actor_tasks:
@@ -141,3 +151,21 @@ class ActorSystem:
             await task
         self.event_loop.stop()
         self.event_loop.close()
+
+
+@attr.s
+class Context:
+    """
+    A handle to the runtime context of an actor.
+    """
+    id: ActorId = attr.ib(validator=instance_of(ActorId))
+    system = attr.ib()
+
+    async def cast(self, id, msg):
+        await self.system.cast(id, msg)
+    
+    async def call(self, id, msg):
+        return await self.system.call(id, msg)
+    
+    def spawn(self, start, handle, name=None) -> ActorId:
+        return self.system.spawn(start, handle, name=name)

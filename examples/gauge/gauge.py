@@ -3,17 +3,19 @@ import attr
 from attr.validators import instance_of
 import logging
 from multipledispatch import dispatch
-from phoenix import ActorRef, ActorSystem, Behaviour
+from phoenix import ActorId, ActorSystem, Behaviour
 import sys
 from typing import Tuple
 
 
 @attr.s
 class Gauge:
-    ref = attr.ib()
+    ctx = attr.ib()
+    id: ActorId = attr.ib(validator=instance_of(ActorId))
 
     @attr.s
     class State:
+        ctx = attr.ib()
         n = attr.ib()
 
     @attr.s
@@ -26,44 +28,46 @@ class Gauge:
 
     @attr.s
     class Read:
-        reply_to: ActorRef = attr.ib()
+        reply_to: ActorId = attr.ib()
 
     @classmethod
     def start(cls, ctx) -> "Gauge":
         async def _start(ctx):
-            return cls.State(0)
-        return cls(ctx.spawn(_start, Gauge.handle))
+            return cls.State(ctx, 0)
+        return cls(ctx=ctx, id=ctx.spawn(_start, Gauge.handle, name="gauge"))
 
     @staticmethod
     @dispatch(State, Inc)
     async def handle(state: State, msg: Inc) -> Tuple[Behaviour, State]:
-        print(f"Increment: {state}")
-        return Behaviour.stop, Gauge.State(state.n + 1)
+        state.n += 1
+        return Behaviour.done, state
 
     @staticmethod
     @dispatch(State, Dec)
     async def handle(state: State, msg: Dec) -> Tuple[Behaviour, State]:
-        return Behaviour.stop, Gauge.State(state.n - 1)
+        state.n -= 1
+        return Behaviour.done, state
 
     @staticmethod
     @dispatch(State, Read)
     async def handle(state: State, msg: Read) -> Tuple[Behaviour, State]:
-        await msg.reply_to.cast(state.n)
-        return Behaviour.stop, state
+        await state.ctx.cast(msg.reply_to, state.n)
+        return Behaviour.done, state
 
     async def inc(self):
-        await self.ref.cast(self.Inc())
+        await self.ctx.cast(self.id, self.Inc())
     
     async def dec(self):
-        await self.ref.cast(self.Dec())
+        await self.ctx.cast(self.id, self.Dec())
     
     async def read(self) -> int:
-        return await self.ref.call(self.Read)
+        return await self.ctx.call(self.id, self.Read)
 
 
 @attr.s
 class Application:
-    ref = attr.ib()
+    ctx = attr.ib()
+    id: ActorId = attr.ib(validator=instance_of(ActorId))
 
     @attr.s
     class State:
@@ -74,12 +78,16 @@ class Application:
     class IncGauge:
         pass
 
+    @attr.s
+    class ReadGauge:
+        reply_to: ActorId = attr.ib(validator=instance_of(ActorId))
+
     @classmethod
     def start(cls, ctx) -> "Application":
         async def _start(ctx):
             gauge = Gauge.start(ctx)
             return cls.State(ctx=ctx, gauge=gauge)
-        return cls(ctx.spawn(_start, Application.handle))
+        return cls(ctx=ctx, id=ctx.spawn(_start, Application.handle, name="application"))
     
     @staticmethod
     @dispatch(State, IncGauge)
@@ -88,19 +96,30 @@ class Application:
         return Behaviour.done, state
     
     @staticmethod
-    @dispatch(State, Down)
-    async def handle(state: State, msg: Down):
-        gauge = Gauge.start(state.ctx)
-        return Gauge.State(ctx=state.ctx, gauge=gauge)
+    @dispatch(State, ReadGauge)
+    async def handle(state: State, msg: ReadGauge):
+        resp = await state.gauge.read()
+        await state.ctx.cast(msg.reply_to, resp)
+        return Behaviour.done, state
+    
+    # @staticmethod
+    # @dispatch(State, Down)
+    # async def handle(state: State, msg: Down):
+    #     gauge = Gauge.start(state.ctx)
+    #     return Gauge.State(ctx=state.ctx, gauge=gauge)
     
     async def inc_gauge(self):
-        await self.ref.cast(self.IncGauge())
+        await self.ctx.cast(self.id, self.IncGauge())
+    
+    async def read_gauge(self) -> int:
+        return await self.ctx.call(self.id, self.ReadGauge)
     
 
 async def main_async():
     system = ActorSystem()
     app = Application.start(system)
     await app.inc_gauge()
+    print(await app.read_gauge())
     await system.run()
 
 
