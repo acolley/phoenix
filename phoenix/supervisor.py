@@ -1,6 +1,12 @@
 import attr
+from attr.validators import instance_of
 from enum import Enum
+import logging
 from multipledispatch import dispatch
+
+from phoenix import ActorId, Behaviour, Down
+
+logger = logging.getLogger(__name__)
 
 
 class Strategy(Enum):
@@ -9,13 +15,8 @@ class Strategy(Enum):
 
 @attr.s
 class Supervisor:
-    ref = attr.ib()
-
-    @staticmethod
-    def start(ctx):
-        async def _start(ctx):
-            pass
-        return 
+    ctx = attr.ib()
+    id: ActorId = attr.ib(validator=instance_of(ActorId))
 
     @attr.s
     class Uninitialised:
@@ -34,23 +35,45 @@ class Supervisor:
         strategy = attr.ib()
 
     @staticmethod
+    async def start(ctx):
+        async def _start(ctx):
+            return Supervisor.Uninitialised(ctx=ctx)
+
+        return await ctx.spawn(_start, Supervisor.handle)
+
+    @staticmethod
     @dispatch(Uninitialised, Init)
     async def handle(state: Uninitialised, msg: Init) -> Supervising:
         children = []
-        for child_start, child_handle in msg.children:
-            child = state.ctx.spawn(child_start, child_handle)
+        for start, handle in msg.children:
+            child = await state.ctx.spawn(start, handle)
             state.ctx.watch(child)
             children.append(child)
-        return Supervisor.Supervising(ctx=state.ctx, children=children, strategy=msg.strategy)
+        return Behaviour.done, Supervisor.Supervising(
+            ctx=state.ctx,
+            factories=msg.children,
+            children=children,
+            strategy=msg.strategy,
+        )
 
     @staticmethod
     @dispatch(Supervising, Down)
     async def handle(state: Supervising, msg: Down) -> Supervising:
-        state.children.remove(msg.id)
+        index = state.children.index(msg.id)
         if state.strategy == Strategy.one_for_one:
-            raise NotImplementedError
+            start, handle = state.factories[index]
+            logger.debug(
+                "[%s] Supervisor restarting child: [%s]; Reason: [%s]",
+                str(state.ctx.id),
+                msg.id,
+                str(msg.reason),
+            )
+            child = await state.ctx.spawn(start, handle)
+            state.ctx.watch(child)
+            state.children[index] = child
         else:
             raise ValueError(f"Unsupported Strategy: {state.strategy}")
+        return Behaviour.done, state
 
     async def init(self, children, strategy):
-        await self.ref.cast(Init(children=children, strategy=strategy))
+        await self.ctx.cast(self.id, self.Init(children=children, strategy=strategy))

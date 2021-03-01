@@ -31,14 +31,17 @@ class Gauge:
         reply_to: ActorId = attr.ib()
 
     @classmethod
-    def start(cls, ctx) -> "Gauge":
+    async def start(cls, ctx) -> "Gauge":
         async def _start(ctx):
             return cls.State(ctx, 0)
-        return cls(ctx=ctx, id=ctx.spawn(_start, Gauge.handle, name="gauge"))
+
+        id = await ctx.spawn(_start, Gauge.handle, name="gauge")
+        return cls(ctx=ctx, id=id)
 
     @staticmethod
     @dispatch(State, Inc)
     async def handle(state: State, msg: Inc) -> Tuple[Behaviour, State]:
+        raise ValueError
         state.n += 1
         return Behaviour.done, state
 
@@ -56,10 +59,10 @@ class Gauge:
 
     async def inc(self):
         await self.ctx.cast(self.id, self.Inc())
-    
+
     async def dec(self):
         await self.ctx.cast(self.id, self.Dec())
-    
+
     async def read(self) -> int:
         return await self.ctx.call(self.id, self.Read)
 
@@ -73,7 +76,7 @@ class Application:
     class State:
         ctx = attr.ib()
         gauge: Gauge = attr.ib(validator=instance_of(Gauge))
-    
+
     @attr.s
     class IncGauge:
         pass
@@ -83,44 +86,55 @@ class Application:
         reply_to: ActorId = attr.ib(validator=instance_of(ActorId))
 
     @classmethod
-    def start(cls, ctx) -> "Application":
+    async def start(cls, ctx) -> "Application":
         async def _start(ctx):
-            gauge = Gauge.start(ctx)
+            gauge = await Gauge.start(ctx)
+            ctx.watch(gauge.id)
             return cls.State(ctx=ctx, gauge=gauge)
-        return cls(ctx=ctx, id=ctx.spawn(_start, Application.handle, name="application"))
-    
+
+        id = await ctx.spawn(_start, Application.handle, name="application")
+        return cls(
+            ctx=ctx, id=id
+        )
+
     @staticmethod
     @dispatch(State, IncGauge)
     async def handle(state: State, msg: IncGauge):
         await state.gauge.inc()
         return Behaviour.done, state
-    
+
     @staticmethod
     @dispatch(State, ReadGauge)
     async def handle(state: State, msg: ReadGauge):
-        resp = await state.gauge.read()
-        await state.ctx.cast(msg.reply_to, resp)
+        try:
+            resp = await asyncio.wait_for(state.gauge.read(), timeout=5)
+        except asyncio.TimeoutError:
+            await state.ctx.cast(msg.reply_to, None)
+        else:
+            await state.ctx.cast(msg.reply_to, resp)
         return Behaviour.done, state
-    
+
     @staticmethod
     @dispatch(State, Down)
     async def handle(state: State, msg: Down):
-        gauge = Gauge.start(state.ctx)
-        return Behaviour.done, Gauge.State(ctx=state.ctx, gauge=gauge)
-    
+        print(f"Gauge died: {msg.reason}")
+        gauge = await Gauge.start(state.ctx)
+        return Behaviour.done, Application.State(ctx=state.ctx, gauge=gauge)
+
     async def inc_gauge(self):
         await self.ctx.cast(self.id, self.IncGauge())
-    
+
     async def read_gauge(self) -> int:
         return await self.ctx.call(self.id, self.ReadGauge)
-    
+
 
 async def main_async():
     system = ActorSystem()
     task = asyncio.create_task(system.run())
-    app = Application.start(system)
+    app = await Application.start(system)
     await app.inc_gauge()
     print(await app.read_gauge())
+    await asyncio.sleep(10)
     await system.shutdown()
 
 
