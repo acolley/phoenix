@@ -15,8 +15,8 @@ class Strategy(Enum):
 
 @attr.s
 class Supervisor:
+    actor_id: ActorId = attr.ib(validator=instance_of(ActorId))
     ctx = attr.ib()
-    id: ActorId = attr.ib(validator=instance_of(ActorId))
 
     @attr.s
     class Uninitialised:
@@ -35,11 +35,12 @@ class Supervisor:
         strategy = attr.ib()
 
     @staticmethod
-    async def start(ctx):
+    async def start(ctx, name=None) -> "Supervisor":
         async def _start(ctx):
             return Supervisor.Uninitialised(ctx=ctx)
 
-        return await ctx.spawn(_start, Supervisor.handle)
+        actor_id = await ctx.spawn(_start, Supervisor.handle, name=name)
+        return Supervisor(actor_id=actor_id, ctx=ctx)
 
     @staticmethod
     @dispatch(Uninitialised, Init)
@@ -61,14 +62,14 @@ class Supervisor:
     async def handle(state: Supervising, msg: Down) -> Supervising:
         index = state.children.index(msg.id)
         if state.strategy == Strategy.one_for_one:
-            start, handle = state.factories[index]
+            start, handle, kwargs = state.factories[index]
             logger.debug(
                 "[%s] Supervisor restarting child: [%s]; Reason: [%s]",
                 str(state.ctx.id),
                 msg.id,
                 str(msg.reason),
             )
-            child = await state.ctx.spawn(start, handle)
+            child = await state.ctx.spawn(start, handle, **kwargs)
             state.ctx.watch(child)
             state.children[index] = child
         else:
@@ -76,4 +77,4 @@ class Supervisor:
         return Behaviour.done, state
 
     async def init(self, children, strategy):
-        await self.ctx.cast(self.id, self.Init(children=children, strategy=strategy))
+        await self.ctx.cast(self.actor_id, self.Init(children=children, strategy=strategy))

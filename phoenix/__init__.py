@@ -75,6 +75,11 @@ async def run_actor(context, queue, start, handler) -> Tuple[ActorId, ExitReason
             raise ValueError(f"Unsupported behaviour: {behaviour}")
 
 
+class Lifetime(Enum):
+    transient = 0
+    persistent = 1
+
+
 class NoSuchActor(Exception):
     pass
 
@@ -92,22 +97,27 @@ class Down:
     reason: ExitReason = attr.ib()
 
 
+@attr.s
+class Actor:
+    task: asyncio.Task = attr.ib(validator=instance_of(asyncio.Task))
+    queue: asyncio.Queue = attr.ib(validator=instance_of(asyncio.Queue))
+
+
 class ActorSystem:
     def __init__(self):
         self.event_loop = asyncio.get_running_loop()
-        self.actor_tasks = {}
-        self.actor_queues = {}
+        self.actors = {}
+        self.actors_persistent = {}
         self.watchers = defaultdict(list)
         self.spawned = asyncio.Event()
 
     async def run(self):
         while True:
-            aws = list(self.actor_tasks.values()) + [self.spawned.wait()]
+            aws = [actor.task for actor in self.actors.values()] + [self.spawned.wait()]
             for coro in asyncio.as_completed(aws):
                 result = await coro
                 if isinstance(result, Exit):
-                    del self.actor_tasks[result.id]
-                    del self.actor_queues[result.id]
+                    del self.actors[result.id]
                     logger.debug("[%s] Actor Removed", str(result.id))
                     watchers = self.watchers.pop(result.id, [])
                     for watcher in watchers:
@@ -116,48 +126,58 @@ class ActorSystem:
                     self.spawned.clear()
                 break
 
-    async def spawn(self, start, handler, name=None) -> str:
+    async def spawn(self, start, handler, name=None, lifetime: Lifetime = Lifetime.transient) -> ActorId:
         """
+        Args:
+            lifetime (Lifetime): The lifetime of the actor.
+                Lifetime.persistent actor messages are kept around after
+                exit and restored after spawning the actor with the same name.
+
         Note: not thread-safe.
         """
-        id = ActorId(name or str(uuid.uuid1()))
-        if id in self.actor_tasks:
-            raise ActorExists(id)
-        queue = Queue()
-        context = Context(id=id, system=self)
+        actor_id = ActorId(name or str(uuid.uuid1()))
+        if actor_id in self.actors:
+            raise ActorExists(actor_id)
+        if actor_id in self.actors_persistent:
+            queue = self.actors_persistent[actor_id].queue
+        else:
+            queue = Queue()
+        context = Context(id=actor_id, system=self)
         task = self.event_loop.create_task(run_actor(context, queue, start, handler))
-        self.actor_tasks[id] = task
-        self.actor_queues[id] = queue
+        actor = Actor(task=task, queue=queue)
+        self.actors[actor_id] = actor
+        if lifetime == Lifetime.persistent:
+            self.actors_persistent[actor_id] = actor
         self.spawned.set()
-        logger.debug("[%s] Actor Spawned", str(id))
-        return id
+        logger.debug("[%s] Actor Spawned", str(actor_id))
+        return actor_id
     
     def watch(self, watcher: ActorId, watched: ActorId):
         """
         Note: not thread-safe.
         """
-        if watched not in self.actor_tasks:
+        if watched not in self.actors:
             raise NoSuchActor(watched)
         self.watchers[watched].append(watcher)
     
-    async def cast(self, id, msg):
+    async def cast(self, actor_id: ActorId, msg):
         """
         Note: not thread-safe.
         """
         try:
-            queue = self.actor_queues[id]
+            actor = self.actors[actor_id]
         except KeyError:
-            raise NoSuchActor(id)
-        await queue.put(msg)
+            raise NoSuchActor(actor_id)
+        await actor.queue.put(msg)
     
-    async def call(self, id, f):
+    async def call(self, actor_id: ActorId, f):
         """
         Note: not thread-safe.
         """
         try:
-            queue = self.actor_queues[id]
+            actor = self.actors[actor_id]
         except KeyError:
-            raise NoSuchActor(id)
+            raise NoSuchActor(actor_id)
         
         async def _start(ctx):
             return None
@@ -170,17 +190,17 @@ class ActorSystem:
             received.set()
             return Behaviour.stop, state
 
-        reply_to = await self.spawn(_start, _handle, name=f"{id}->{uuid.uuid1()}")
+        reply_to = await self.spawn(_start, _handle, name=f"{actor_id}->{uuid.uuid1()}")
         msg = f(reply_to)
-        await queue.put(msg)
+        await actor.queue.put(msg)
         await received.wait()
         return reply
     
     async def shutdown(self):
-        for task in list(self.actor_tasks.values()):
-            task.cancel()
+        for actor in list(self.actors.values()):
+            actor.task.cancel()
             try:
-                await task
+                await actor.task
             except asyncio.CancelledError:
                 pass
 
