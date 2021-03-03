@@ -6,7 +6,7 @@ from multipledispatch import dispatch
 import sys
 from typing import Tuple
 
-from phoenix import ActorId, ActorSystem, Behaviour, Down, Lifetime
+from phoenix import ActorId, ActorSystem, Behaviour, Down
 from phoenix.supervisor import Strategy, Supervisor
 
 
@@ -44,7 +44,6 @@ class Gauge:
     @staticmethod
     @dispatch(State, Inc)
     async def handle(state: State, msg: Inc) -> Tuple[Behaviour, State]:
-        raise ValueError
         state.n += 1
         return Behaviour.done, state
 
@@ -74,11 +73,14 @@ async def main_async():
     system = ActorSystem()
     task = asyncio.create_task(system.run())
     supervisor = await Supervisor.new(system, name="Supervisor.Gauge")
-    await supervisor.init(children=[(Gauge.start, Gauge.handle, dict(name="Gauge", lifetime=Lifetime.persistent))], strategy=Strategy.one_for_one)
+    await supervisor.init(children=[(Gauge.start, Gauge.handle, dict(name="Gauge"))], strategy=Strategy.one_for_one)
     gauge = Gauge(actor_id=ActorId("Gauge"), ctx=system)
     await gauge.inc()
     await gauge.dec()
-    print(await gauge.read())
+    # Timeout should be based on the average time it takes
+    # to process this specific request.
+    value = await asyncio.wait_for(gauge.read(), timeout=5)
+    print(value)
     await asyncio.sleep(5)
     await system.shutdown()
 

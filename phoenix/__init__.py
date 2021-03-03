@@ -77,11 +77,6 @@ async def run_actor(context, queue, start, handler) -> Tuple[ActorId, ExitReason
             raise ValueError(f"Unsupported behaviour: {behaviour}")
 
 
-class Lifetime(Enum):
-    transient = 0
-    persistent = 1
-
-
 class NoSuchActor(Exception):
     pass
 
@@ -109,7 +104,6 @@ class ActorSystem:
     def __init__(self):
         self.event_loop = asyncio.get_running_loop()
         self.actors = {}
-        self.actors_persistent = {}
         self.watchers = defaultdict(list)
         self.spawned = asyncio.Event()
 
@@ -128,30 +122,20 @@ class ActorSystem:
                     self.spawned.clear()
                 break
 
-    async def spawn(self, start, handler, name=None, lifetime: Lifetime = Lifetime.transient) -> ActorId:
+    async def spawn(self, start, handler, name=None) -> ActorId:
         """
-        Args:
-            lifetime (Lifetime): The lifetime of the actor.
-                Lifetime.persistent actor messages are kept around after
-                exit and restored after spawning the actor with the same name.
-
         Note: not thread-safe.
         """
         actor_id = ActorId(name or str(uuid.uuid1()))
         logger.debug("[%s] Spawn Actor", str(actor_id))
         if actor_id in self.actors:
             raise ActorExists(actor_id)
-        if actor_id in self.actors_persistent:
-            logger.debug("[%s] Restoring Persistent Actor", str(actor_id))
-            queue = self.actors_persistent[actor_id].queue
-        else:
-            queue = Queue()
+        # TODO: encourage bounded queues for back pressure to prevent overload
+        queue = Queue()
         context = Context(actor_id=actor_id, system=self)
         task = self.event_loop.create_task(run_actor(context, queue, start, handler))
         actor = Actor(task=task, queue=queue)
         self.actors[actor_id] = actor
-        if lifetime == Lifetime.persistent:
-            self.actors_persistent[actor_id] = actor
         self.spawned.set()
         logger.debug("[%s] Actor Spawned", str(actor_id))
         return actor_id
@@ -223,8 +207,8 @@ class Context:
     async def call(self, id, msg):
         return await self.system.call(id, msg)
     
-    async def spawn(self, start, handle, name=None, lifetime=Lifetime.transient) -> ActorId:
-        return await self.system.spawn(start, handle, name=name, lifetime=lifetime)
+    async def spawn(self, start, handle, name=None) -> ActorId:
+        return await self.system.spawn(start, handle, name=name)
     
     def watch(self, actor_id: ActorId):
         self.system.watch(self.actor_id, actor_id)
