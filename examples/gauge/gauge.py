@@ -31,7 +31,7 @@ class Gauge:
     @attr.s
     class Read:
         reply_to: ActorId = attr.ib()
-    
+
     @classmethod
     async def new(cls, ctx, name=None) -> "Gauge":
         actor_id = await ctx.spawn(cls.start, cls.handle, name=name)
@@ -75,7 +75,10 @@ async def main_async():
     task = asyncio.create_task(system.run())
 
     supervisor = await Supervisor.new(system, name="Supervisor.Gauge")
-    await supervisor.init(children=[(Gauge.start, Gauge.handle, dict(name="Gauge"))], strategy=RestartStrategy.one_for_one)
+    await supervisor.init(
+        children=[(Gauge.start, Gauge.handle, dict(name="Gauge"))],
+        strategy=RestartStrategy.one_for_one,
+    )
     gauge = Gauge(actor_id=ActorId("Gauge"), ctx=system)
     await gauge.inc()
     await gauge.dec()

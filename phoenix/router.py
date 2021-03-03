@@ -12,6 +12,7 @@ def start(actor_start, count: int):
     async def _inner(ctx):
         actors = [await ctx.spawn(actor_start) for _ in range(count)]
         return Router(actors=actors, index=0)
+
     return _inner
 
 

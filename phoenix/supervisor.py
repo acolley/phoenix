@@ -44,6 +44,7 @@ class Supervisor:
         Internal message indicating that an actor
         should be restarted.
         """
+
         actor_id: ActorId = attr.ib(validator=instance_of(ActorId))
         reason: ExitReason = attr.ib(validator=instance_of((Shutdown, Stop, Error)))
 
@@ -81,11 +82,15 @@ class Supervisor:
         index = state.children.index(msg.actor_id)
         if state.strategy == RestartStrategy.one_for_one:
             backoff = 2 ** state.restarts[index]
-            await state.ctx.cast_after(state.ctx.actor_id, Supervisor.Restart(actor_id=msg.actor_id, reason=msg.reason), backoff)
+            await state.ctx.cast_after(
+                state.ctx.actor_id,
+                Supervisor.Restart(actor_id=msg.actor_id, reason=msg.reason),
+                backoff,
+            )
         else:
             raise ValueError(f"Unsupported RestartStrategy: {state.strategy}")
         return Behaviour.done, state
-    
+
     @staticmethod
     @dispatch(Supervising, Restart)
     async def handle(state: Supervising, msg: Restart) -> Tuple[Behaviour, Supervising]:
@@ -103,4 +108,6 @@ class Supervisor:
         return Behaviour.done, state
 
     async def init(self, children, strategy):
-        await self.ctx.call(self.actor_id, partial(self.Init, children=children, strategy=strategy))
+        await self.ctx.call(
+            self.actor_id, partial(self.Init, children=children, strategy=strategy)
+        )

@@ -99,6 +99,7 @@ class Down:
     """
     Message sent to a watcher when the watched exits.
     """
+
     actor_id: ActorId = attr.ib(validator=instance_of(ActorId))
     reason: ExitReason = attr.ib(validator=instance_of((Shutdown, Stop, Error)))
 
@@ -136,7 +137,11 @@ class ActorSystem:
                 result = await coro
                 if isinstance(result, Exit):
                     del self.actors[result.actor_id]
-                    logger.debug("[%s] Actor Removed; Reason: [%s]", str(result.actor_id), str(result.reason))
+                    logger.debug(
+                        "[%s] Actor Removed; Reason: [%s]",
+                        str(result.actor_id),
+                        str(result.reason),
+                    )
 
                     # Remove as a watcher of other Actors
                     for watcher in self.watched.pop(result.actor_id, set()):
@@ -146,13 +151,20 @@ class ActorSystem:
                     # Remove bidirectional links
                     for linked_id in self.links.pop(result.actor_id, set()):
                         actor = self.actors[linked_id]
-                        logger.debug("Shutdown [%s] due to Linked Actor Exit [%s]", str(linked_id), str(result.actor_id))
+                        logger.debug(
+                            "Shutdown [%s] due to Linked Actor Exit [%s]",
+                            str(linked_id),
+                            str(result.actor_id),
+                        )
                         actor.task.cancel()
                         self.links[linked_id].remove(result.actor_id)
 
                     # Notify watchers
                     for watcher in self.watchers.pop(result.actor_id, set()):
-                        await self.cast(watcher, Down(actor_id=result.actor_id, reason=result.reason))
+                        await self.cast(
+                            watcher,
+                            Down(actor_id=result.actor_id, reason=result.reason),
+                        )
                 else:
                     self.spawned.clear()
                 break
@@ -177,7 +189,7 @@ class ActorSystem:
         self.spawned.set()
         logger.debug("[%s] Actor Spawned", str(actor_id))
         return actor_id
-    
+
     def link(self, a: ActorId, b: ActorId):
         """
         Create a bi-directional link between two actors.
@@ -201,7 +213,7 @@ class ActorSystem:
             raise ValueError(f"{a!r} == {b!r}")
         self.links[a].add(b)
         self.links[b].add(a)
-    
+
     def watch(self, watcher: ActorId, watched: ActorId):
         """
         ``watcher`` watches ``watched``.
@@ -217,7 +229,7 @@ class ActorSystem:
             raise NoSuchActor(watched)
         self.watchers[watched].add(watcher)
         self.watched[watcher].add(watched)
-    
+
     async def cast(self, actor_id: ActorId, msg):
         """
         Send a message to the actor with id ``actor_id``.
@@ -229,17 +241,19 @@ class ActorSystem:
         except KeyError:
             raise NoSuchActor(actor_id)
         await actor.queue.put(msg)
-    
+
     async def cast_after(self, actor_id: ActorId, msg, delay: float) -> TimerId:
         timer_id = TimerId(str(uuid.uuid1()))
+
         async def _timer():
             await asyncio.sleep(delay)
             await self.cast(actor_id, msg)
             del self.timers[timer_id]
+
         task = asyncio.create_task(_timer())
         self.timers[timer_id] = Timer(task=task)
         return timer_id
-    
+
     async def call(self, actor_id: ActorId, f):
         """
         Send a message to the actor with id ``actor_id``
@@ -251,12 +265,13 @@ class ActorSystem:
             actor = self.actors[actor_id]
         except KeyError:
             raise NoSuchActor(actor_id)
-        
+
         async def _start(ctx):
             return None
-        
+
         reply = None
         received = asyncio.Event()
+
         async def _handle(state: None, msg):
             nonlocal reply
             reply = msg
@@ -268,7 +283,7 @@ class ActorSystem:
         await actor.queue.put(msg)
         await received.wait()
         return reply
-    
+
     async def shutdown(self):
         for actor in list(self.actors.values()):
             actor.task.cancel()
@@ -280,6 +295,7 @@ class Context:
     """
     A handle to the runtime context of an actor.
     """
+
     actor_id: ActorId = attr.ib(validator=instance_of(ActorId))
     system = attr.ib()
 
@@ -288,13 +304,13 @@ class Context:
 
     async def cast_after(self, actor_id: ActorId, msg, delay: float) -> TimerId:
         return await self.system.cast_after(actor_id, msg, delay)
-    
+
     async def call(self, actor_id, msg):
         return await self.system.call(actor_id, msg)
-    
+
     async def spawn(self, start, handle, name=None) -> ActorId:
         return await self.system.spawn(start, handle, name=name)
-    
+
     def watch(self, actor_id: ActorId):
         self.system.watch(self.actor_id, actor_id)
 

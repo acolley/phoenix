@@ -27,6 +27,7 @@ def start(ctx, hostname) -> Supervisor:
     async def _start(ctx):
         supervisor.init(children=[(_start, handle)], strategy=Strategy.one_for_one)
         return supervisor
+
     supervisor = Supervisor.start(ctx)
     conn = await asyncssh.connect(hostname)
     return State(conn)
@@ -44,7 +45,9 @@ class Remote:
     ref = attr.ib()
 
     async def run_command(self, cmd):
-        return await self.ref.call(lambda reply_to: RunCommand(reply_to=reply_to, cmd=cmd))
+        return await self.ref.call(
+            lambda reply_to: RunCommand(reply_to=reply_to, cmd=cmd)
+        )
 
 
 async def main_async():
