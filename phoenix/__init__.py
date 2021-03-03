@@ -8,6 +8,7 @@ import logging
 from multipledispatch import dispatch
 import threading
 import uuid
+import time
 from typing import Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
@@ -261,6 +262,7 @@ class ActorSystem:
 
         Note: not thread-safe.
         """
+        start = time.monotonic()
         try:
             actor = self.actors[actor_id]
         except KeyError:
@@ -282,6 +284,8 @@ class ActorSystem:
         msg = f(reply_to)
         await actor.queue.put(msg)
         await received.wait()
+        dt = time.monotonic() - start
+        logger.debug("Call [time=%s] [%s] [%s]", str(dt), str(actor_id), repr(msg))
         return reply
 
     async def shutdown(self):

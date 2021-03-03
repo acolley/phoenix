@@ -7,6 +7,7 @@ import logging
 import sys
 
 from phoenix import ActorId, ActorSystem
+from phoenix.router import Router
 from phoenix.supervisor import RestartStrategy, Supervisor
 
 from webapi.handler import RequestHandler
@@ -20,7 +21,7 @@ class HttpApi:
     @attr.s
     class State:
         runner: web.AppRunner = attr.ib(validator=instance_of(web.AppRunner))
-        handler: RequestHandler = attr.ib(validator=instance_of(RequestHandler))
+        router_id: ActorId = attr.ib(validator=instance_of(ActorId))
 
     @classmethod
     async def new(cls, context, host: str, port: int, name=None) -> "HttpApi":
@@ -31,26 +32,15 @@ class HttpApi:
 
     @staticmethod
     async def start(context, host: str, port: int) -> State:
-        supervisor = await Supervisor.new(
-            context, name="Supervisor.HttpApi.RequestHandler"
+        router_id = await context.spawn(
+            partial(Router.start, workers=4, start=RequestHandler.start, handle=RequestHandler.handle),
+            Router.handle,
+            name="HttpApi.RequestHandlers",
         )
-        await supervisor.init(
-            children=[
-                (
-                    RequestHandler.start,
-                    RequestHandler.handle,
-                    dict(name="HttpApi.RequestHandler"),
-                )
-            ],
-            strategy=RestartStrategy.one_for_one,
-        )
-
-        handler = RequestHandler(
-            actor_id=ActorId("HttpApi.RequestHandler"), context=context
-        )
+        context.link(context.actor_id, router_id)
 
         async def hello(request):
-            return await handler.hello(request)
+            return await context.call(router_id, partial(RequestHandler.Hello, request=request))
 
         app = web.Application()
         app.add_routes([web.get("/", hello)])
@@ -58,7 +48,7 @@ class HttpApi:
         await runner.setup()
         site = web.TCPSite(runner, host, port)
         await site.start()
-        return HttpApi.State(runner=runner, handler=handler)
+        return HttpApi.State(runner=runner, router_id=router_id)
 
     @staticmethod
     async def handle(state: State, msg):
