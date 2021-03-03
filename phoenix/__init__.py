@@ -41,36 +41,38 @@ ExitReason = Union[Stop, Error]
 
 @attr.s
 class Exit:
-    id: ActorId = attr.ib(validator=instance_of(ActorId))
+    actor_id: ActorId = attr.ib(validator=instance_of(ActorId))
     reason: ExitReason = attr.ib(validator=instance_of((Stop, Error)))
 
 
 async def run_actor(context, queue, start, handler) -> Tuple[ActorId, ExitReason]:
+    logger.debug("[%s] Starting", str(context.actor_id))
     try:
         state = await start(context)
     except asyncio.CancelledError:
         # Catch all exceptions except for CancelledError
         raise
     except Exception as e:
-        logger.debug("[%s]", str(context.id), exc_info=True)
-        return Exit(id=context.id, reason=Error(e))
+        logger.debug("[%s] Start", str(context.actor_id), exc_info=True)
+        return Exit(actor_id=context.actor_id, reason=Error(e))
     while True:
         msg = await queue.get()
-        logger.debug("[%s] Received: [%s]", str(context.id), str(msg))
+        logger.debug("[%s] Received: [%s]", str(context.actor_id), str(msg))
         try:
             behaviour, state = await handler(state, msg)
         except asyncio.CancelledError:
             # Catch all exceptions except for CancelledError
             raise
         except Exception as e:
-            logger.debug("[%s]", str(context.id), exc_info=True)
-            return Exit(id=context.id, reason=Error(e))
-        logger.debug("[%s] %s", str(context.id), str(behaviour))
-        if behaviour == Behaviour.done:
+            logger.debug("[%s] %s", str(context.actor_id), str(msg), exc_info=True)
+            return Exit(actor_id=context.actor_id, reason=Error(e))
+        finally:
             queue.task_done()
+        logger.debug("[%s] %s", str(context.actor_id), str(behaviour))
+        if behaviour == Behaviour.done:
             continue
         elif behaviour == Behaviour.stop:
-            return Exit(id=context.id, reason=Stop())
+            return Exit(actor_id=context.actor_id, reason=Stop())
         else:
             raise ValueError(f"Unsupported behaviour: {behaviour}")
 
@@ -93,7 +95,7 @@ class Down:
     """
     Message sent to a watcher when the watched exits.
     """
-    id: ActorId = attr.ib(validator=instance_of(ActorId))
+    actor_id: ActorId = attr.ib(validator=instance_of(ActorId))
     reason: ExitReason = attr.ib()
 
 
@@ -117,11 +119,11 @@ class ActorSystem:
             for coro in asyncio.as_completed(aws):
                 result = await coro
                 if isinstance(result, Exit):
-                    del self.actors[result.id]
-                    logger.debug("[%s] Actor Removed", str(result.id))
-                    watchers = self.watchers.pop(result.id, [])
+                    del self.actors[result.actor_id]
+                    logger.debug("[%s] Actor Removed; Reason: [%s]", str(result.actor_id), str(result.reason))
+                    watchers = self.watchers.pop(result.actor_id, [])
                     for watcher in watchers:
-                        await self.cast(watcher, Down(id=result.id, reason=result.reason))
+                        await self.cast(watcher, Down(actor_id=result.actor_id, reason=result.reason))
                 else:
                     self.spawned.clear()
                 break
@@ -136,13 +138,15 @@ class ActorSystem:
         Note: not thread-safe.
         """
         actor_id = ActorId(name or str(uuid.uuid1()))
+        logger.debug("[%s] Spawn Actor", str(actor_id))
         if actor_id in self.actors:
             raise ActorExists(actor_id)
         if actor_id in self.actors_persistent:
+            logger.debug("[%s] Restoring Persistent Actor", str(actor_id))
             queue = self.actors_persistent[actor_id].queue
         else:
             queue = Queue()
-        context = Context(id=actor_id, system=self)
+        context = Context(actor_id=actor_id, system=self)
         task = self.event_loop.create_task(run_actor(context, queue, start, handler))
         actor = Actor(task=task, queue=queue)
         self.actors[actor_id] = actor
@@ -210,7 +214,7 @@ class Context:
     """
     A handle to the runtime context of an actor.
     """
-    id: ActorId = attr.ib(validator=instance_of(ActorId))
+    actor_id: ActorId = attr.ib(validator=instance_of(ActorId))
     system = attr.ib()
 
     async def cast(self, id, msg):
@@ -219,8 +223,8 @@ class Context:
     async def call(self, id, msg):
         return await self.system.call(id, msg)
     
-    async def spawn(self, start, handle, name=None) -> ActorId:
-        return await self.system.spawn(start, handle, name=name)
+    async def spawn(self, start, handle, name=None, lifetime=Lifetime.transient) -> ActorId:
+        return await self.system.spawn(start, handle, name=name, lifetime=lifetime)
     
-    def watch(self, id: ActorId):
-        self.system.watch(self.id, id)
+    def watch(self, actor_id: ActorId):
+        self.system.watch(self.actor_id, actor_id)

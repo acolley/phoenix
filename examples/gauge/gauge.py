@@ -3,15 +3,17 @@ import attr
 from attr.validators import instance_of
 import logging
 from multipledispatch import dispatch
-from phoenix import ActorId, ActorSystem, Behaviour, Down
 import sys
 from typing import Tuple
+
+from phoenix import ActorId, ActorSystem, Behaviour, Down, Lifetime
+from phoenix.supervisor import Strategy, Supervisor
 
 
 @attr.s
 class Gauge:
+    actor_id: ActorId = attr.ib(validator=instance_of(ActorId))
     ctx = attr.ib()
-    id: ActorId = attr.ib(validator=instance_of(ActorId))
 
     @attr.s
     class State:
@@ -29,14 +31,15 @@ class Gauge:
     @attr.s
     class Read:
         reply_to: ActorId = attr.ib()
-
+    
     @classmethod
-    async def start(cls, ctx) -> "Gauge":
-        async def _start(ctx):
-            return cls.State(ctx, 0)
+    async def new(cls, ctx, name=None) -> "Gauge":
+        actor_id = await ctx.spawn(cls.start, cls.handle, name=name)
+        return cls(ctx=ctx, actor_id=actor_id)
 
-        id = await ctx.spawn(_start, Gauge.handle, name="gauge")
-        return cls(ctx=ctx, id=id)
+    @staticmethod
+    async def start(ctx) -> "Gauge":
+        return Gauge.State(ctx, 0)
 
     @staticmethod
     @dispatch(State, Inc)
@@ -58,83 +61,25 @@ class Gauge:
         return Behaviour.done, state
 
     async def inc(self):
-        await self.ctx.cast(self.id, self.Inc())
+        await self.ctx.cast(self.actor_id, self.Inc())
 
     async def dec(self):
-        await self.ctx.cast(self.id, self.Dec())
+        await self.ctx.cast(self.actor_id, self.Dec())
 
     async def read(self) -> int:
-        return await self.ctx.call(self.id, self.Read)
-
-
-@attr.s
-class Application:
-    ctx = attr.ib()
-    id: ActorId = attr.ib(validator=instance_of(ActorId))
-
-    @attr.s
-    class State:
-        ctx = attr.ib()
-        gauge: Gauge = attr.ib(validator=instance_of(Gauge))
-
-    @attr.s
-    class IncGauge:
-        pass
-
-    @attr.s
-    class ReadGauge:
-        reply_to: ActorId = attr.ib(validator=instance_of(ActorId))
-
-    @classmethod
-    async def start(cls, ctx) -> "Application":
-        async def _start(ctx):
-            gauge = await Gauge.start(ctx)
-            ctx.watch(gauge.id)
-            return cls.State(ctx=ctx, gauge=gauge)
-
-        id = await ctx.spawn(_start, Application.handle, name="application")
-        return cls(
-            ctx=ctx, id=id
-        )
-
-    @staticmethod
-    @dispatch(State, IncGauge)
-    async def handle(state: State, msg: IncGauge):
-        await state.gauge.inc()
-        return Behaviour.done, state
-
-    @staticmethod
-    @dispatch(State, ReadGauge)
-    async def handle(state: State, msg: ReadGauge):
-        try:
-            resp = await asyncio.wait_for(state.gauge.read(), timeout=5)
-        except asyncio.TimeoutError:
-            await state.ctx.cast(msg.reply_to, None)
-        else:
-            await state.ctx.cast(msg.reply_to, resp)
-        return Behaviour.done, state
-
-    @staticmethod
-    @dispatch(State, Down)
-    async def handle(state: State, msg: Down):
-        print(f"Gauge died: {msg.reason}")
-        gauge = await Gauge.start(state.ctx)
-        return Behaviour.done, Application.State(ctx=state.ctx, gauge=gauge)
-
-    async def inc_gauge(self):
-        await self.ctx.cast(self.id, self.IncGauge())
-
-    async def read_gauge(self) -> int:
-        return await self.ctx.call(self.id, self.ReadGauge)
+        return await self.ctx.call(self.actor_id, self.Read)
 
 
 async def main_async():
     system = ActorSystem()
     task = asyncio.create_task(system.run())
-    app = await Application.start(system)
-    await app.inc_gauge()
-    print(await app.read_gauge())
-    await asyncio.sleep(10)
+    supervisor = await Supervisor.new(system, name="Supervisor.Gauge")
+    await supervisor.init(children=[(Gauge.start, Gauge.handle, dict(name="Gauge", lifetime=Lifetime.persistent))], strategy=Strategy.one_for_one)
+    gauge = Gauge(actor_id=ActorId("Gauge"), ctx=system)
+    await gauge.inc()
+    await gauge.dec()
+    print(await gauge.read())
+    await asyncio.sleep(5)
     await system.shutdown()
 
 
