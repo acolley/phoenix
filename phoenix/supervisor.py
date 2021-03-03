@@ -4,13 +4,14 @@ from enum import Enum
 from functools import partial
 import logging
 from multipledispatch import dispatch
+from typing import Callable, Tuple
 
-from phoenix import ActorId, Behaviour, Down
+from phoenix import ActorId, Behaviour, Down, Error, ExitReason, Shutdown, Stop
 
 logger = logging.getLogger(__name__)
 
 
-class Strategy(Enum):
+class RestartStrategy(Enum):
     one_for_one = 0
 
 
@@ -28,6 +29,7 @@ class Supervisor:
         ctx = attr.ib()
         factories = attr.ib()
         children = attr.ib()
+        restarts = attr.ib()
         strategy = attr.ib()
 
     @attr.s
@@ -35,6 +37,15 @@ class Supervisor:
         reply_to: ActorId = attr.ib(validator=instance_of(ActorId))
         children = attr.ib()
         strategy = attr.ib()
+
+    @attr.s
+    class Restart:
+        """
+        Internal message indicating that an actor
+        should be restarted.
+        """
+        actor_id: ActorId = attr.ib(validator=instance_of(ActorId))
+        reason: ExitReason = attr.ib(validator=instance_of((Shutdown, Stop, Error)))
 
     @classmethod
     async def new(cls, ctx, name=None) -> "Supervisor":
@@ -49,15 +60,18 @@ class Supervisor:
     @dispatch(Uninitialised, Init)
     async def handle(state: Uninitialised, msg: Init) -> Supervising:
         children = []
+        restarts = []
         for start, handle, kwargs in msg.children:
             child = await state.ctx.spawn(start, handle, **kwargs)
             state.ctx.watch(child)
             children.append(child)
+            restarts.append(0)
         await state.ctx.cast(msg.reply_to, None)
         return Behaviour.done, Supervisor.Supervising(
             ctx=state.ctx,
             factories=msg.children,
             children=children,
+            restarts=restarts,
             strategy=msg.strategy,
         )
 
@@ -65,19 +79,27 @@ class Supervisor:
     @dispatch(Supervising, Down)
     async def handle(state: Supervising, msg: Down) -> Supervising:
         index = state.children.index(msg.actor_id)
-        if state.strategy == Strategy.one_for_one:
-            start, handle, kwargs = state.factories[index]
-            logger.debug(
-                "[%s] Supervisor restarting child: [%s]; Reason: [%s]",
-                str(state.ctx.actor_id),
-                msg.actor_id,
-                str(msg.reason),
-            )
-            child = await state.ctx.spawn(start, handle, **kwargs)
-            state.ctx.watch(child)
-            state.children[index] = child
+        if state.strategy == RestartStrategy.one_for_one:
+            backoff = 2 ** state.restarts[index]
+            await state.ctx.cast_after(state.ctx.actor_id, Supervisor.Restart(actor_id=msg.actor_id, reason=msg.reason), backoff)
         else:
-            raise ValueError(f"Unsupported Strategy: {state.strategy}")
+            raise ValueError(f"Unsupported RestartStrategy: {state.strategy}")
+        return Behaviour.done, state
+    
+    @staticmethod
+    @dispatch(Supervising, Restart)
+    async def handle(state: Supervising, msg: Restart) -> Tuple[Behaviour, Supervising]:
+        index = state.children.index(msg.actor_id)
+        start, handle, kwargs = state.factories[index]
+        logger.debug(
+            "[%s] Supervisor restarting child: [%s]; Reason: [%s]",
+            str(state.ctx.actor_id),
+            msg.actor_id,
+            str(msg.reason),
+        )
+        child = await state.ctx.spawn(start, handle, **kwargs)
+        state.ctx.watch(child)
+        state.children[index] = child
         return Behaviour.done, state
 
     async def init(self, children, strategy):
