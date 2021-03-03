@@ -105,6 +105,7 @@ class Supervisor:
         child = await state.ctx.spawn(start, handle, **kwargs)
         state.ctx.watch(child)
         state.children[index] = child
+        state.restarts[index] += 1
         return Behaviour.done, state
 
     async def init(self, children, strategy):
