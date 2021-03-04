@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import asyncio
 from asyncio import Queue
 from collections import defaultdict
@@ -127,7 +128,33 @@ class Timer:
     task: asyncio.Task
 
 
-class ActorSystem:
+class Context(ABC):
+    @abstractmethod
+    async def cast(self, actor_id: ActorId, msg: Any):
+        raise NotImplementedError
+
+    @abstractmethod
+    async def cast_after(self, actor_id: ActorId, msg, delay: float) -> TimerId:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def call(self, actor_id: ActorId, msg: Any):
+        raise NotImplementedError
+
+    @abstractmethod
+    async def spawn(self, start, handle, name=None) -> ActorId:
+        raise NotImplementedError
+
+    @abstractmethod
+    def watch(self, actor_id: ActorId):
+        raise NotImplementedError
+
+    @abstractmethod
+    def link(self, a: ActorId, b: ActorId):
+        raise NotImplementedError
+
+
+class ActorSystem(Context):
     def __init__(self):
         self.event_loop = asyncio.get_running_loop()
         self.actors = {}
@@ -306,7 +333,7 @@ class ActorSystem:
 
 
 @dataclass
-class ActorContext:
+class ActorContext(Context):
     """
     A handle to the runtime context of an actor.
     """
@@ -331,9 +358,6 @@ class ActorContext:
 
     def link(self, a: ActorId, b: ActorId):
         self.system.link(a, b)
-
-
-Context = Union[ActorSystem, ActorContext]
 
 
 class RestartStrategy(Enum):
@@ -498,16 +522,26 @@ class Router:
         await self.context.cast(self.actor_id, msg)
 
 
-async def retry(
-    coro, max_retries: int = 5, backoff: Callable[[int], float] = lambda n: 2 ** n
+def retry(
+    max_retries: int = 5,
+    backoff: Callable[[int], float] = lambda n: 2 ** n,
 ):
-    n = 0
-    while n < max_retries:
-        try:
-            return await coro
-        except Exception as e:
-            exc = e
-            wait_for = backoff(n)
-            await asyncio.sleep(wait_for)
+    async def _retry(func: Callable[[], Coroutine]):
+        n = 0
+        while n <= max_retries:
+            try:
+                return await func()
+            except Exception as e:
+                exc = e
+                wait_for = backoff(n)
+                n += 1
+                logger.debug(
+                    "Retry caught error. Retrying in %f seconds. Retry: %d.",
+                    wait_for,
+                    n,
+                    exc_info=True,
+                )
+                await asyncio.sleep(wait_for)
 
-    raise exc
+        raise exc
+    return _retry

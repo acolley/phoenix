@@ -6,9 +6,7 @@ from functools import partial
 import logging
 import sys
 
-from phoenix import ActorId, ActorSystem
-from phoenix.router import Router
-from phoenix.supervisor import RestartStrategy, Supervisor
+from phoenix import ActorId, ActorSystem, RestartStrategy, Router, Supervisor
 
 from webapi.handler import RequestHandler
 

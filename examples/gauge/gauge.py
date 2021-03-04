@@ -6,7 +6,15 @@ from multipledispatch import dispatch
 import sys
 from typing import Tuple
 
-from phoenix import ActorId, ActorSystem, Behaviour, Down, RestartStrategy, Supervisor
+from phoenix import (
+    ActorId,
+    ActorSystem,
+    Behaviour,
+    Down,
+    RestartStrategy,
+    Supervisor,
+    retry,
+)
 
 
 @attr.s
@@ -83,10 +91,7 @@ async def main_async():
     await gauge.dec()
     # Timeout should be based on the average time it takes
     # to process this specific request.
-    try:
-        value = await asyncio.wait_for(gauge.read(), timeout=5)
-    except asyncio.TimeoutError:
-        value = await gauge.read()
+    value = await retry(max_retries=5)(lambda: asyncio.wait_for(gauge.read(), timeout=3))
     print(value)
 
     await asyncio.sleep(5)
