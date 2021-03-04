@@ -320,6 +320,8 @@ class ActorSystem(Context):
 
         reply_to = await self.spawn(_start, _handle, name=f"{actor_id}->{uuid.uuid1()}")
         msg = f(reply_to)
+        # TODO: timeout in case a reply is never received to prevent
+        # unbounded reply actors from accumulating?
         await actor.queue.put(msg)
         await received.wait()
         dt = time.monotonic() - start
