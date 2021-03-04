@@ -7,8 +7,8 @@ authors = ["Alasdair <alnessy@hotmail.com>"]
 [tool.poetry.dependencies]
 python = "^3.8"
 multipledispatch = "^0.6.0"
-attrs = "^20.3.0"
 janus = "^0.6.1"
+pydantic = "^1.8.1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"

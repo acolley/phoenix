@@ -33,14 +33,21 @@ class HttpApi:
     @staticmethod
     async def start(context, host: str, port: int) -> State:
         router_id = await context.spawn(
-            partial(Router.start, workers=4, start=RequestHandler.start, handle=RequestHandler.handle),
+            partial(
+                Router.start,
+                workers=4,
+                start=RequestHandler.start,
+                handle=RequestHandler.handle,
+            ),
             Router.handle,
             name="HttpApi.RequestHandlers",
         )
         context.link(context.actor_id, router_id)
 
         async def hello(request):
-            return await context.call(router_id, partial(RequestHandler.Hello, request=request))
+            return await context.call(
+                router_id, partial(RequestHandler.Hello, request=request)
+            )
 
         app = web.Application()
         app.add_routes([web.get("/", hello)])

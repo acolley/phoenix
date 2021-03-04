@@ -6,8 +6,7 @@ from multipledispatch import dispatch
 import sys
 from typing import Tuple
 
-from phoenix import ActorId, ActorSystem, Behaviour, Down
-from phoenix.supervisor import RestartStrategy, Supervisor
+from phoenix import ActorId, ActorSystem, Behaviour, Down, RestartStrategy, Supervisor
 
 
 @attr.s
