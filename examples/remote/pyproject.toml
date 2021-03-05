@@ -1,23 +1,21 @@
 [tool.poetry]
-name = "phoenix"
+name = "remote"
 version = "0.1.0"
 description = ""
-authors = ["Alasdair <alnessy@hotmail.com>"]
+authors = ["Your Name <you@example.com>"]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.9"
+phoenix = { path = "../.." }
 multipledispatch = "^0.6.0"
-janus = "^0.6.1"
-pydantic = "^1.8.1"
+asyncssh = "^2.5.0"
+attrs = "^20.3.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
-pytest-cov = "^2.10.0"
-snakeviz = "^2.1.0"
-black = {version = "^20.8b1", allow-prereleases = true}
 
 [tool.poetry.scripts]
-main = "phoenix.main:main"
+run = "remote:main"
 
 [build-system]
 requires = ["poetry>=1.0"]
