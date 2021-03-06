@@ -68,6 +68,17 @@ version = "0.4.4"
 
 [[package]]
 category = "main"
+description = "Curio"
+name = "curio"
+optional = false
+python-versions = ">= 3.6"
+version = "1.4"
+
+[package.extras]
+test = ["pytest", "sphinx"]
+
+[[package]]
+category = "main"
 description = "Mixed sync-async queue to interoperate between asyncio tasks and classic threads"
 name = "janus"
 optional = false
@@ -258,7 +269,7 @@ python-versions = "*"
 version = "0.2.5"
 
 [metadata]
-content-hash = "cf8ac250c509d6564e07e7975b705c9dad5dea2c1b4c21439a65e710f9bbf8cd"
+content-hash = "675f9572f509ab76c1494cfa7a53b6489e59c7e223ee2156608d7492a7e56a88"
 lock-version = "1.0"
 python-versions = "^3.8"
 
@@ -286,6 +297,9 @@ click = [
 colorama = [
     {file = "colorama-0.4.4-py2.py3-none-any.whl", hash = "sha256:9f47eda37229f68eee03b24b9748937c7dc3868f906e8ba69fbcbdd3bc5dc3e2"},
     {file = "colorama-0.4.4.tar.gz", hash = "sha256:5941b2b48a20143d2267e95b1c2a7603ce057ee39fd88e7329b0c292aa16869b"},
+]
+curio = [
+    {file = "curio-1.4.tar.gz", hash = "sha256:57edce81c837f3c2cf42fbb346dee26e537d1659e6605269fb13bd179e068744"},
 ]
 janus = [
     {file = "janus-0.6.1-py3-none-any.whl", hash = "sha256:6dae3f1fd68a92dab49c1b93d269f22d2232feddf3a3b8842a881a6e67500c16"},

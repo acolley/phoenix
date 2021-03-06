@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-import asyncio
-from asyncio import Queue
+import curio
+from curio import Queue
 from collections import defaultdict
 from enum import Enum
 from functools import partial
@@ -62,7 +62,7 @@ async def run_actor(
     logger.debug("[%s] Starting", str(context.actor_id))
     try:
         state = await start(context)
-    except asyncio.CancelledError:
+    except curio.CancelledError:
         return Exit(actor_id=context.actor_id, reason=Shutdown())
     except Exception as e:
         logger.debug("[%s] Start", str(context.actor_id), exc_info=True)
@@ -73,13 +73,13 @@ async def run_actor(
             logger.debug("[%s] Received: [%s]", str(context.actor_id), str(msg))
             try:
                 behaviour, state = await handler(state, msg)
-            except asyncio.CancelledError:
+            except curio.CancelledError:
                 raise
             except Exception as e:
                 logger.debug("[%s] %s", str(context.actor_id), str(msg), exc_info=True)
                 return Exit(actor_id=context.actor_id, reason=Error(e))
             finally:
-                queue.task_done()
+                await queue.task_done()
             logger.debug("[%s] %s", str(context.actor_id), str(behaviour))
             if behaviour == Behaviour.done:
                 continue
@@ -87,7 +87,7 @@ async def run_actor(
                 return Exit(actor_id=context.actor_id, reason=Stop())
             else:
                 raise ValueError(f"Unsupported behaviour: {behaviour}")
-    except asyncio.CancelledError:
+    except curio.CancelledError:
         return Exit(actor_id=context.actor_id, reason=Shutdown())
     except Exception as e:
         logger.debug("[%s]", str(context.actor_id), exc_info=True)
@@ -114,8 +114,8 @@ class Down:
 
 @dataclass
 class Actor:
-    task: asyncio.Task
-    queue: asyncio.Queue
+    task: curio.Task
+    queue: curio.Queue
 
 
 @dataclass(frozen=True)
@@ -125,7 +125,7 @@ class TimerId:
 
 @dataclass
 class Timer:
-    task: asyncio.Task
+    task: curio.Task
 
 
 class Context(ABC):
@@ -156,19 +156,18 @@ class Context(ABC):
 
 class ActorSystem(Context):
     def __init__(self):
-        self.event_loop = asyncio.get_running_loop()
         self.actors = {}
+        self.tasks = curio.TaskGroup()
         self.links = defaultdict(set)
         self.watchers = defaultdict(set)
         self.watched = defaultdict(set)
-        self.spawned = asyncio.Event()
+        self.spawned = curio.Event()
         self.timers = {}
 
     async def run(self):
-        while True:
-            aws = [actor.task for actor in self.actors.values()] + [self.spawned.wait()]
-            for coro in asyncio.as_completed(aws):
-                result = await coro
+        async with self.tasks as g:
+            async for task in g:
+                result = task.result
                 if isinstance(result, Exit):
                     del self.actors[result.actor_id]
                     logger.debug(
@@ -222,10 +221,10 @@ class ActorSystem(Context):
         # TODO: bounded queues for back pressure to prevent overload
         queue = Queue()
         context = ActorContext(actor_id=actor_id, system=self)
-        task = self.event_loop.create_task(run_actor(context, queue, start, handler))
+        task = await self.tasks.spawn(run_actor(context, queue, start, handler))
         actor = Actor(task=task, queue=queue)
         self.actors[actor_id] = actor
-        self.spawned.set()
+        await self.spawned.set()
         logger.debug("[%s] Actor Spawned", str(actor_id))
         return actor_id
 
@@ -285,11 +284,11 @@ class ActorSystem(Context):
         timer_id = TimerId(str(uuid.uuid1()))
 
         async def _timer():
-            await asyncio.sleep(delay)
+            await curio.sleep(delay)
             await self.cast(actor_id, msg)
             del self.timers[timer_id]
 
-        task = asyncio.create_task(_timer())
+        task = curio.create_task(_timer())
         self.timers[timer_id] = Timer(task=task)
         return timer_id
 
@@ -310,12 +309,12 @@ class ActorSystem(Context):
             return None
 
         reply = None
-        received = asyncio.Event()
+        received = curio.Event()
 
         async def _handle(state: None, msg):
             nonlocal reply
             reply = msg
-            received.set()
+            await received.set()
             return Behaviour.stop, state
 
         reply_to = await self.spawn(_start, _handle, name=f"{actor_id}->{uuid.uuid1()}")
@@ -543,7 +542,7 @@ def retry(
                     n,
                     exc_info=True,
                 )
-                await asyncio.sleep(wait_for)
+                await curio.sleep(wait_for)
 
         raise exc
     return _retry

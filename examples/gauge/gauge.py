@@ -1,4 +1,4 @@
-import asyncio
+import curio
 import attr
 from attr.validators import instance_of
 import logging
@@ -79,7 +79,7 @@ class Gauge:
 
 async def main_async():
     system = ActorSystem()
-    task = asyncio.create_task(system.run())
+    task = await curio.spawn(system.run())
 
     supervisor = await Supervisor.new(system, name="Supervisor.Gauge")
     await supervisor.init(
@@ -91,13 +91,13 @@ async def main_async():
     await gauge.dec()
     # Timeout should be based on the average time it takes
     # to process this specific request.
-    value = await retry(max_retries=5)(lambda: asyncio.wait_for(gauge.read(), timeout=3))
+    value = await retry(max_retries=5)(lambda: curio.timeout_after(3, gauge.read()))
     print(value)
 
-    await asyncio.sleep(5)
+    await curio.sleep(5)
     await system.shutdown()
 
 
 def main():
     logging.basicConfig(format="%(message)s", stream=sys.stderr, level=logging.DEBUG)
-    asyncio.run(main_async())
+    curio.run(main_async())

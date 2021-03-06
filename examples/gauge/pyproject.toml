@@ -9,6 +9,7 @@ python = "^3.8"
 phoenix = { path = "../.." }
 attrs = "^19.3.0"
 multipledispatch = "^0.6.0"
+curio = "^1.4"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"

@@ -81,6 +81,17 @@ toml = ["toml"]
 
 [[package]]
 category = "main"
+description = "Curio"
+name = "curio"
+optional = false
+python-versions = ">= 3.6"
+version = "1.4"
+
+[package.extras]
+test = ["pytest", "sphinx"]
+
+[[package]]
+category = "main"
 description = "Mixed sync-async queue to interoperate between asyncio tasks and classic threads"
 name = "janus"
 optional = false
@@ -280,7 +291,7 @@ python-versions = "*"
 version = "0.2.5"
 
 [metadata]
-content-hash = "0339a314a8cc139a436f76d0b77318720204e8e2a72848f143a360b3e47f6418"
+content-hash = "f4f0040b4c64c014e088c4ec835f30cca5973660c4cac7483d408a644787b3af"
 lock-version = "1.0"
 python-versions = "^3.8"
 
@@ -358,6 +369,9 @@ coverage = [
     {file = "coverage-5.4-pp36-none-any.whl", hash = "sha256:c0ff1c1b4d13e2240821ef23c1efb1f009207cb3f56e16986f713c2b0e7cd37f"},
     {file = "coverage-5.4-pp37-none-any.whl", hash = "sha256:cd601187476c6bed26a0398353212684c427e10a903aeafa6da40c63309d438b"},
     {file = "coverage-5.4.tar.gz", hash = "sha256:6d2e262e5e8da6fa56e774fb8e2643417351427604c2b177f8e8c5f75fc928ca"},
+]
+curio = [
+    {file = "curio-1.4.tar.gz", hash = "sha256:57edce81c837f3c2cf42fbb346dee26e537d1659e6605269fb13bd179e068744"},
 ]
 janus = [
     {file = "janus-0.6.1-py3-none-any.whl", hash = "sha256:6dae3f1fd68a92dab49c1b93d269f22d2232feddf3a3b8842a881a6e67500c16"},
