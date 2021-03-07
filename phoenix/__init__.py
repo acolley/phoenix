@@ -48,7 +48,7 @@ ExitReason = Union[Shutdown, Stop, Error]
 
 
 @dataclass
-class Exit:
+class ActorExit:
     actor_id: ActorId
     reason: ExitReason
 
@@ -63,10 +63,10 @@ async def run_actor(
     try:
         state = await start(context)
     except curio.CancelledError:
-        return Exit(actor_id=context.actor_id, reason=Shutdown())
+        return ActorExit(actor_id=context.actor_id, reason=Shutdown())
     except Exception as e:
         logger.debug("[%s] Start", str(context.actor_id), exc_info=True)
-        return Exit(actor_id=context.actor_id, reason=Error(e))
+        return ActorExit(actor_id=context.actor_id, reason=Error(e))
     try:
         while True:
             msg = await queue.get()
@@ -77,21 +77,21 @@ async def run_actor(
                 raise
             except Exception as e:
                 logger.debug("[%s] %s", str(context.actor_id), str(msg), exc_info=True)
-                return Exit(actor_id=context.actor_id, reason=Error(e))
+                return ActorExit(actor_id=context.actor_id, reason=Error(e))
             finally:
                 await queue.task_done()
             logger.debug("[%s] %s", str(context.actor_id), str(behaviour))
             if behaviour == Behaviour.done:
                 continue
             elif behaviour == Behaviour.stop:
-                return Exit(actor_id=context.actor_id, reason=Stop())
+                return ActorExit(actor_id=context.actor_id, reason=Stop())
             else:
                 raise ValueError(f"Unsupported behaviour: {behaviour}")
     except curio.CancelledError:
-        return Exit(actor_id=context.actor_id, reason=Shutdown())
+        return ActorExit(actor_id=context.actor_id, reason=Shutdown())
     except Exception as e:
         logger.debug("[%s]", str(context.actor_id), exc_info=True)
-        return Exit(actor_id=context.actor_id, reason=Error(e))
+        return ActorExit(actor_id=context.actor_id, reason=Error(e))
 
 
 class NoSuchActor(Exception):
@@ -126,6 +126,11 @@ class TimerId:
 @dataclass
 class Timer:
     task: curio.Task
+
+
+@dataclass
+class TimerExit:
+    timer_id: TimerId
 
 
 class Context(ABC):
@@ -168,7 +173,7 @@ class ActorSystem(Context):
         async with self.tasks as g:
             async for task in g:
                 result = task.result
-                if isinstance(result, Exit):
+                if isinstance(result, ActorExit):
                     del self.actors[result.actor_id]
                     logger.debug(
                         "[%s] Actor Removed; Reason: [%s]",
@@ -198,9 +203,10 @@ class ActorSystem(Context):
                             watcher,
                             Down(actor_id=result.actor_id, reason=result.reason),
                         )
+                elif isinstance(result, TimerExit):
+                    del self.timers[result.timer_id]
                 else:
-                    self.spawned.clear()
-                break
+                    raise ValueError(f"Invalid task result: {result}")
 
     async def spawn(
         self,
@@ -284,12 +290,16 @@ class ActorSystem(Context):
         timer_id = TimerId(str(uuid.uuid1()))
 
         async def _timer():
-            await curio.sleep(delay)
-            await self.cast(actor_id, msg)
-            del self.timers[timer_id]
+            try:
+                await curio.sleep(delay)
+                await self.cast(actor_id, msg)
+            except curio.CancelledError:
+                logger.debug("[%s] Timer Cancelled")
+            return TimerExit(timer_id)
 
-        task = curio.create_task(_timer())
+        task = await curio.spawn(_timer())
         self.timers[timer_id] = Timer(task=task)
+        await self.tasks.add_task(task)
         return timer_id
 
     async def call(self, actor_id: ActorId, f):
@@ -317,7 +327,7 @@ class ActorSystem(Context):
             await received.set()
             return Behaviour.stop, state
 
-        reply_to = await self.spawn(_start, _handle, name=f"{actor_id}->{uuid.uuid1()}")
+        reply_to = await self.spawn(_start, _handle, name=f"Respond.{actor_id}.{uuid.uuid1()}")
         msg = f(reply_to)
         # TODO: timeout in case a reply is never received to prevent
         # unbounded reply actors from accumulating?
@@ -328,9 +338,7 @@ class ActorSystem(Context):
         return reply
 
     async def shutdown(self):
-        for actor in list(self.actors.values()):
-            actor.task.cancel()
-            await actor.task
+        await self.tasks.cancel_remaining()
 
 
 @dataclass

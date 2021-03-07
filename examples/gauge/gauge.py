@@ -96,6 +96,7 @@ async def main_async():
 
     await curio.sleep(5)
     await system.shutdown()
+    await task.join()
 
 
 def main():
