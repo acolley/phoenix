@@ -55,7 +55,8 @@ class Exit:
 
 async def run_actor(
     context,
-    queue,
+    events,
+    mailbox,
     start: Callable[["Context"], Coroutine],
     handler: Callable[[Any, Any], Coroutine],
 ) -> Tuple[ActorId, ExitReason]:
@@ -63,13 +64,15 @@ async def run_actor(
     try:
         state = await start(context)
     except asyncio.CancelledError:
-        return Exit(actor_id=context.actor_id, reason=Shutdown())
+        await events.put(Exited(actor_id=context.actor_id, reason=Shutdown()))
+        return
+        # return Exit(actor_id=context.actor_id, reason=Shutdown())
     except Exception as e:
         logger.debug("[%s] Start", str(context.actor_id), exc_info=True)
         return Exit(actor_id=context.actor_id, reason=Error(e))
     try:
         while True:
-            msg = await queue.get()
+            msg = await mailbox.get()
             logger.debug("[%s] Received: [%s]", str(context.actor_id), str(msg))
             try:
                 behaviour, state = await handler(state, msg)
@@ -79,7 +82,7 @@ async def run_actor(
                 logger.debug("[%s] %s", str(context.actor_id), str(msg), exc_info=True)
                 return Exit(actor_id=context.actor_id, reason=Error(e))
             finally:
-                queue.task_done()
+                mailbox.task_done()
             logger.debug("[%s] %s", str(context.actor_id), str(behaviour))
             if behaviour == Behaviour.done:
                 continue
@@ -113,7 +116,31 @@ class Down:
 
 
 @dataclass
+class Spawned:
+    pass
+
+
+@dataclass
+class Linked:
+    pass
+
+
+@dataclass
+class Exited:
+    pass
+
+
+ActorEvent = Union[Spawned, Linked, Exited]
+
+
+@dataclass
 class Actor:
+    id: ActorId
+    events: List[ActorEvent]
+
+
+@dataclass
+class ActorHandle:
     task: asyncio.Task
     queue: asyncio.Queue
 
@@ -223,7 +250,7 @@ class ActorSystem(Context):
         queue = Queue()
         context = ActorContext(actor_id=actor_id, system=self)
         task = self.event_loop.create_task(run_actor(context, queue, start, handler))
-        actor = Actor(task=task, queue=queue)
+        actor = ActorHandle(task=task, queue=queue)
         self.actors[actor_id] = actor
         self.spawned.set()
         logger.debug("[%s] Actor Spawned", str(actor_id))
