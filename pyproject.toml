@@ -11,10 +11,11 @@ janus = "^0.6.1"
 pydantic = "^1.8.1"
 
 [tool.poetry.dev-dependencies]
-pytest = "^5.2"
+pytest = "^6.2.2"
 pytest-cov = "^2.10.0"
 snakeviz = "^2.1.0"
 black = {version = "^20.8b1", allow-prereleases = true}
+pytest-asyncio = "^0.14.0"
 
 [tool.poetry.scripts]
 main = "phoenix.main:main"
@@ -22,3 +23,7 @@ main = "phoenix.main:main"
 [build-system]
 requires = ["poetry>=1.0"]
 build-backend = "poetry.masonry.api"
+
+[tool.pytest.ini_options]
+log_cli = "True"
+log_cli_level = "DEBUG"
