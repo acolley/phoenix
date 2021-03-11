@@ -55,6 +55,7 @@ class Exit:
 
 async def run_actor(
     context,
+    messages,
     queue,
     start: Callable[["Context"], Coroutine],
     handler: Callable[[Any, Any], Coroutine],
@@ -63,10 +64,12 @@ async def run_actor(
     try:
         state = await start(context)
     except asyncio.CancelledError:
-        return Exit(actor_id=context.actor_id, reason=Shutdown())
+        await messages.put(ActorExited(actor_id=context.actor_id, reason=Shutdown()))
+        return
     except Exception as e:
         logger.debug("[%s] Start", str(context.actor_id), exc_info=True)
-        return Exit(actor_id=context.actor_id, reason=Error(e))
+        await messages.put(ActorExited(actor_id=context.actor_id, reason=Error(e)))
+        return
     try:
         while True:
             msg = await queue.get()
@@ -74,24 +77,35 @@ async def run_actor(
             try:
                 behaviour, state = await handler(state, msg)
             except asyncio.CancelledError:
-                raise
+                await messages.put(
+                    ActorExited(actor_id=context.actor_id, reason=Shutdown())
+                )
+                return
             except Exception as e:
                 logger.debug("[%s] %s", str(context.actor_id), str(msg), exc_info=True)
-                return Exit(actor_id=context.actor_id, reason=Error(e))
+                await messages.put(
+                    ActorExited(actor_id=context.actor_id, reason=Error(e))
+                )
+                return
             finally:
                 queue.task_done()
             logger.debug("[%s] %s", str(context.actor_id), str(behaviour))
             if behaviour == Behaviour.done:
                 continue
             elif behaviour == Behaviour.stop:
-                return Exit(actor_id=context.actor_id, reason=Stop())
+                await messages.put(
+                    ActorExited(actor_id=context.actor_id, reason=Stop())
+                )
+                return
             else:
                 raise ValueError(f"Unsupported behaviour: {behaviour}")
     except asyncio.CancelledError:
-        return Exit(actor_id=context.actor_id, reason=Shutdown())
+        await messages.put(ActorExited(actor_id=context.actor_id, reason=Shutdown()))
+        return
     except Exception as e:
         logger.debug("[%s]", str(context.actor_id), exc_info=True)
-        return Exit(actor_id=context.actor_id, reason=Error(e))
+        await messages.put(ActorExited(actor_id=context.actor_id, reason=Error(e)))
+        return
 
 
 class NoSuchActor(Exception):
@@ -146,62 +160,157 @@ class Context(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def watch(self, actor_id: ActorId):
+    async def watch(self, actor_id: ActorId):
         raise NotImplementedError
 
     @abstractmethod
-    def link(self, a: ActorId, b: ActorId):
+    async def link(self, a: ActorId, b: ActorId):
         raise NotImplementedError
 
 
+ActorStart = Callable[[Context], Coroutine]
+ActorHandle = Callable[[Any, Any], Coroutine]
+ActorSpawnOptions = Dict[str, str]
+ActorFactory = Tuple[ActorStart, ActorHandle, ActorSpawnOptions]
+
+
+@dataclass
+class SpawnActor:
+    reply_to: Queue
+    actor_id: ActorId
+    start: ActorStart
+    handler: ActorHandle
+
+
+@dataclass
+class WatchActor:
+    reply_to: Queue
+    watcher: ActorId
+    watched: ActorId
+
+
+@dataclass
+class LinkActors:
+    reply_to: Queue
+    a: ActorId
+    b: ActorId
+
+
+@dataclass
+class ActorExited:
+    actor_id: ActorId
+    reason: ExitReason
+
+
+@dataclass
+class ShutdownSystem:
+    reply_to: Queue
+
+
 class ActorSystem(Context):
-    def __init__(self):
+    def __init__(self, name: str):
+        self.name = name
         self.event_loop = asyncio.get_running_loop()
         self.actors = {}
         self.links = defaultdict(set)
         self.watchers = defaultdict(set)
         self.watched = defaultdict(set)
-        self.spawned = asyncio.Event()
+        # Serialize changes to system state through the use
+        # of a Queue.
+        self.messages = Queue()
         self.timers = {}
 
     async def run(self):
         while True:
-            aws = [actor.task for actor in self.actors.values()] + [self.spawned.wait()]
-            for coro in asyncio.as_completed(aws):
-                result = await coro
-                if isinstance(result, Exit):
-                    del self.actors[result.actor_id]
-                    logger.debug(
-                        "[%s] Actor Removed; Reason: [%s]",
-                        str(result.actor_id),
-                        str(result.reason),
-                    )
+            message = await self.messages.get()
+            logger.debug("[ActorSystem(%s)] %s", self.name, str(message))
+            await self.handle_message(message)
+            self.messages.task_done()
+            if isinstance(message, ShutdownSystem):
+                return
 
-                    # Remove as a watcher of other Actors
-                    for watcher in self.watched.pop(result.actor_id, set()):
-                        self.watchers[watcher].remove(result.actor_id)
+    @dispatch(ShutdownSystem)
+    async def handle_message(self, msg: ShutdownSystem):
+        for actor in self.actors.values():
+            actor.task.cancel()
+            await actor.task
+        await msg.reply_to.put(None)
 
-                    # Shutdown linked actors
-                    # Remove bidirectional links
-                    for linked_id in self.links.pop(result.actor_id, set()):
-                        actor = self.actors[linked_id]
-                        logger.debug(
-                            "Shutdown [%s] due to Linked Actor Exit [%s]",
-                            str(linked_id),
-                            str(result.actor_id),
-                        )
-                        actor.task.cancel()
-                        self.links[linked_id].remove(result.actor_id)
+    @dispatch(SpawnActor)
+    async def handle_message(self, msg: SpawnActor):
+        if msg.actor_id in self.actors:
+            await msg.reply_to.put(ActorExists(msg.actor_id))
+            return
+        # TODO: bounded queues for back pressure to prevent overload
+        queue = Queue(50)
+        context = ActorContext(actor_id=msg.actor_id, system=self)
+        task = self.event_loop.create_task(
+            run_actor(context, self.messages, queue, msg.start, msg.handler),
+            name=str(msg.actor_id),
+        )
+        actor = Actor(task=task, queue=queue)
+        self.actors[msg.actor_id] = actor
+        logger.debug("[%s] Actor Spawned", str(msg.actor_id))
+        await msg.reply_to.put(msg.actor_id)
 
-                    # Notify watchers
-                    for watcher in self.watchers.pop(result.actor_id, set()):
-                        await self.cast(
-                            watcher,
-                            Down(actor_id=result.actor_id, reason=result.reason),
-                        )
-                else:
-                    self.spawned.clear()
-                break
+    @dispatch(WatchActor)
+    async def handle_message(self, msg: WatchActor):
+        if msg.watcher not in self.actors:
+            await msg.reply_to.put(NoSuchActor(msg.watcher))
+            return
+        if msg.watched not in self.actors:
+            await msg.reply_to.put(NoSuchActor(msg.watched))
+            return
+        self.watchers[msg.watched].add(msg.watcher)
+        self.watched[msg.watcher].add(msg.watched)
+        await msg.reply_to.put(None)
+
+    @dispatch(LinkActors)
+    async def handle_message(self, msg: LinkActors):
+        if msg.a not in self.actors:
+            await msg.reply_to.put(NoSuchActor(msg.a))
+            return
+        if msg.b not in self.actors:
+            await msg.reply_to.put(NoSuchActor(msg.b))
+            return
+        if msg.a == msg.b:
+            await msg.reply_to.put(ValueError(f"{msg.a!r} == {msg.b!r}"))
+            return
+        self.links[msg.a].add(msg.b)
+        self.links[msg.b].add(msg.a)
+        await msg.reply_to.put(None)
+
+    @dispatch(ActorExited)
+    async def handle_message(self, msg: ActorExited):
+        logger.debug(
+            "[%s] Actor Exited; Reason: [%s]",
+            str(msg.actor_id),
+            str(msg.reason),
+        )
+        del self.actors[msg.actor_id]
+
+        # Remove as a watcher of other Actors
+        for watcher in self.watched.pop(msg.actor_id, set()):
+            self.watchers[watcher].remove(msg.actor_id)
+
+        # Shutdown linked actors
+        # Remove bidirectional links
+        for linked_id in self.links.pop(msg.actor_id, set()):
+            actor = self.actors[linked_id]
+            logger.debug(
+                "Shutdown [%s] due to Linked Actor Exit [%s]",
+                str(linked_id),
+                str(msg.actor_id),
+            )
+            actor.task.cancel()
+            self.links[linked_id].remove(msg.actor_id)
+
+        # Notify watchers
+        for watcher in self.watchers.pop(msg.actor_id, set()):
+            await self.cast(
+                watcher,
+                Down(actor_id=msg.actor_id, reason=msg.reason),
+            )
 
     async def spawn(
         self,
@@ -216,20 +325,21 @@ class ActorSystem(Context):
             ActorExists: if the actor given by ``name`` already exists.
         """
         actor_id = ActorId(name or str(uuid.uuid1()))
-        logger.debug("[%s] Spawn Actor", str(actor_id))
-        if actor_id in self.actors:
-            raise ActorExists(actor_id)
-        # TODO: bounded queues for back pressure to prevent overload
-        queue = Queue()
-        context = ActorContext(actor_id=actor_id, system=self)
-        task = self.event_loop.create_task(run_actor(context, queue, start, handler))
-        actor = Actor(task=task, queue=queue)
-        self.actors[actor_id] = actor
-        self.spawned.set()
-        logger.debug("[%s] Actor Spawned", str(actor_id))
-        return actor_id
+        reply_to = Queue()
+        await self.messages.put(
+            SpawnActor(
+                reply_to=reply_to,
+                actor_id=actor_id,
+                start=start,
+                handler=handler,
+            )
+        )
+        reply = await reply_to.get()
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
 
-    def link(self, a: ActorId, b: ActorId):
+    async def link(self, a: ActorId, b: ActorId):
         """
         Create a bi-directional link between two actors.
 
@@ -243,17 +353,19 @@ class ActorSystem(Context):
             NoSuchActor: if neither a nor b is an actor.
             ValueError: if a == b.
         """
-        logger.debug("Link Actors [%s] and [%s]", str(a), str(b))
-        if a not in self.actors:
-            raise NoSuchActor(a)
-        if b not in self.actors:
-            raise NoSuchActor(b)
-        if a == b:
-            raise ValueError(f"{a!r} == {b!r}")
-        self.links[a].add(b)
-        self.links[b].add(a)
+        reply_to = Queue()
+        await self.messages.put(
+            LinkActors(
+                reply_to=reply_to,
+                a=a,
+                b=b,
+            )
+        )
+        reply = await reply_to.get()
+        if isinstance(reply, Exception):
+            raise reply
 
-    def watch(self, watcher: ActorId, watched: ActorId):
+    async def watch(self, watcher: ActorId, watched: ActorId):
         """
         ``watcher`` watches ``watched``.
 
@@ -261,13 +373,17 @@ class ActorSystem(Context):
 
         Note: not thread-safe.
         """
-        logger.debug("[%s] watch actor [%s]", str(watcher), str(watched))
-        if watcher not in self.actors:
-            raise NoSuchActor(watcher)
-        if watched not in self.actors:
-            raise NoSuchActor(watched)
-        self.watchers[watched].add(watcher)
-        self.watched[watcher].add(watched)
+        reply_to = Queue()
+        await self.messages.put(
+            WatchActor(
+                reply_to=reply_to,
+                watcher=watcher,
+                watched=watched,
+            )
+        )
+        reply = await reply_to.get()
+        if isinstance(reply, Exception):
+            raise reply
 
     async def cast(self, actor_id: ActorId, msg):
         """
@@ -329,9 +445,9 @@ class ActorSystem(Context):
         return reply
 
     async def shutdown(self):
-        for actor in list(self.actors.values()):
-            actor.task.cancel()
-            await actor.task
+        reply_to = Queue()
+        await self.messages.put(ShutdownSystem(reply_to=reply_to))
+        await reply_to.get()
 
 
 @dataclass
@@ -355,11 +471,11 @@ class ActorContext(Context):
     async def spawn(self, start, handle, name=None) -> ActorId:
         return await self.system.spawn(start, handle, name=name)
 
-    def watch(self, actor_id: ActorId):
-        self.system.watch(self.actor_id, actor_id)
+    async def watch(self, actor_id: ActorId):
+        await self.system.watch(self.actor_id, actor_id)
 
-    def link(self, a: ActorId, b: ActorId):
-        self.system.link(a, b)
+    async def link(self, a: ActorId, b: ActorId):
+        await self.system.link(a, b)
 
 
 class RestartStrategy(Enum):
@@ -378,27 +494,21 @@ class Supervisor:
     @dataclass
     class Supervising:
         context: Context
-        factories: List[
-            Tuple[
-                Callable[[Context], Coroutine],
-                Callable[[Any, Any], Coroutine],
-                Dict[str, str],
-            ]
-        ]
+        factories: List[ActorFactory]
         children: List[ActorId]
         restarts: List[int]
         strategy: RestartStrategy
 
     @dataclass
     class Init:
+        """
+        Synchronously initialise the Supervisor
+        enabling clients to wait until children
+        have all been spawned.
+        """
+
         reply_to: ActorId
-        children: List[
-            Tuple[
-                Callable[[Context], Coroutine],
-                Callable[[Any, Any], Coroutine],
-                Dict[str, str],
-            ]
-        ]
+        children: List[ActorFactory]
         strategy: RestartStrategy
 
     @dataclass
@@ -413,30 +523,37 @@ class Supervisor:
 
     @classmethod
     async def new(cls, context, name=None) -> "Supervisor":
-        actor_id = await context.spawn(cls.start, cls.handle, name=name)
+        actor_id = await context.spawn(
+            cls.start,
+            cls.handle,
+            name=name,
+        )
         return Supervisor(actor_id=actor_id, context=context)
 
     @staticmethod
-    async def start(context):
+    async def start(context: Context) -> Uninitialised:
         return Supervisor.Uninitialised(context=context)
 
     @staticmethod
     @dispatch(Uninitialised, Init)
-    async def handle(state: Uninitialised, msg: Init) -> Supervising:
+    async def handle(state: Uninitialised, msg: Init) -> Tuple[Behaviour, Supervising]:
         children = []
         restarts = []
         for start, handle, kwargs in msg.children:
             child = await state.context.spawn(start, handle, **kwargs)
-            state.context.watch(child)
+            await state.context.watch(child)
             children.append(child)
             restarts.append(0)
         await state.context.cast(msg.reply_to, None)
-        return Behaviour.done, Supervisor.Supervising(
-            context=state.context,
-            factories=msg.children,
-            children=children,
-            restarts=restarts,
-            strategy=msg.strategy,
+        return (
+            Behaviour.done,
+            Supervisor.Supervising(
+                context=state.context,
+                factories=msg.children,
+                children=children,
+                restarts=restarts,
+                strategy=msg.strategy,
+            ),
         )
 
     @staticmethod
@@ -466,12 +583,12 @@ class Supervisor:
             str(msg.reason),
         )
         child = await state.context.spawn(start, handle, **kwargs)
-        state.context.watch(child)
+        await state.context.watch(child)
         state.children[index] = child
         state.restarts[index] += 1
         return Behaviour.done, state
 
-    async def init(self, children, strategy):
+    async def init(self, children: List[ActorFactory], strategy: RestartStrategy):
         await self.context.call(
             self.actor_id, partial(self.Init, children=children, strategy=strategy)
         )
@@ -504,9 +621,11 @@ class Router:
             for i in range(workers)
         ]
         supervisor = await Supervisor.new(
-            context, name=f"{context.actor_id}.Supervisor"
+            context,
+            children=children,
+            strategy=RestartStrategy.one_for_one,
+            name=f"{context.actor_id}.Supervisor",
         )
-        await supervisor.init(children=children, strategy=RestartStrategy.one_for_one)
         return Router.State(
             context=context,
             actors=[ActorId(f"{context.actor_id}.{i}") for i in range(workers)],
@@ -524,10 +643,100 @@ class Router:
         await self.context.cast(self.actor_id, msg)
 
 
-def retry(
-    max_retries: int = 5,
-    backoff: Callable[[int], float] = lambda n: 2 ** n,
-):
+@dataclass
+class DynamicSupervisor:
+    """
+    Supervisor for children that are started dynamically.
+    """
+
+    actor_id: ActorId
+    context: Context
+
+    @dataclass
+    class State:
+        context: Context
+        factories: List[ActorFactory]
+        children: List[ActorId]
+        restarts: List[int]
+
+    @dataclass
+    class StartChild:
+        reply_to: ActorId
+        start: ActorStart
+        handle: ActorHandle
+        kwargs: Dict[str, str]
+
+    @dataclass
+    class Restart:
+        """
+        Internal message indicating that an actor
+        should be restarted.
+        """
+
+        actor_id: ActorId
+        reason: ExitReason
+
+    @classmethod
+    async def new(cls, context: Context, name=None) -> "DynamicSupervisor":
+        actor_id = await context.spawn(cls.start, cls.handle, name=name)
+        return DynamicSupervisor(actor_id=actor_id, context=context)
+
+    @staticmethod
+    async def start(context: Context) -> State:
+        return DynamicSupervisor.State(
+            context=context, factories=[], children=[], restarts=[]
+        )
+
+    @staticmethod
+    @dispatch(State, StartChild)
+    async def handle(state: State, msg: StartChild) -> Tuple[Behaviour, State]:
+        child = await state.context.spawn(msg.start, msg.handle, **msg.kwargs)
+        await state.context.watch(child)
+        state.factories.append((msg.start, msg.handle, msg.kwargs))
+        state.children.append(child)
+        state.restarts.append(0)
+        await state.context.cast(msg.reply_to, child)
+        return Behaviour.done, state
+
+    @staticmethod
+    @dispatch(State, Down)
+    async def handle(state: State, msg: Down) -> State:
+        index = state.children.index(msg.actor_id)
+        backoff = 2 ** state.restarts[index]
+        await state.context.cast_after(
+            state.context.actor_id,
+            DynamicSupervisor.Restart(actor_id=msg.actor_id, reason=msg.reason),
+            backoff,
+        )
+        return Behaviour.done, state
+
+    @staticmethod
+    @dispatch(State, Restart)
+    async def handle(state: State, msg: Restart) -> Tuple[Behaviour, State]:
+        index = state.children.index(msg.actor_id)
+        start, handle, kwargs = state.factories[index]
+        logger.debug(
+            "[%s] Restarting child: [%s]; Reason: [%s]",
+            str(state.context.actor_id),
+            msg.actor_id,
+            str(msg.reason),
+        )
+        child = await state.context.spawn(start, handle, **kwargs)
+        await state.context.watch(child)
+        state.children[index] = child
+        state.restarts[index] += 1
+        return Behaviour.done, state
+
+    async def start_child(
+        self, start: ActorStart, handle: ActorHandle, kwargs: Dict[str, str]
+    ) -> ActorId:
+        return await self.context.call(
+            self.actor_id,
+            partial(self.StartChild, start=start, handle=handle, kwargs=kwargs),
+        )
+
+
+def retry(max_retries: int = 5, backoff: Callable[[int], float] = lambda n: 2 ** n):
     async def _retry(func: Callable[[], Coroutine]):
         n = 0
         while n <= max_retries:
@@ -546,4 +755,5 @@ def retry(
                 await asyncio.sleep(wait_for)
 
         raise exc
+
     return _retry

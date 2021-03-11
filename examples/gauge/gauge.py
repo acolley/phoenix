@@ -45,7 +45,7 @@ class Gauge:
         return cls(ctx=ctx, actor_id=actor_id)
 
     @staticmethod
-    async def start(ctx) -> "Gauge":
+    async def start(ctx) -> State:
         return Gauge.State(ctx, 0)
 
     @staticmethod
@@ -78,10 +78,13 @@ class Gauge:
 
 
 async def main_async():
-    system = ActorSystem()
+    system = ActorSystem("system")
     task = asyncio.create_task(system.run())
 
-    supervisor = await Supervisor.new(system, name="Supervisor.Gauge")
+    supervisor = await Supervisor.new(
+        system,
+        name="Supervisor.Gauge",
+    )
     await supervisor.init(
         children=[(Gauge.start, Gauge.handle, dict(name="Gauge"))],
         strategy=RestartStrategy.one_for_one,
@@ -91,7 +94,9 @@ async def main_async():
     await gauge.dec()
     # Timeout should be based on the average time it takes
     # to process this specific request.
-    value = await retry(max_retries=5)(lambda: asyncio.wait_for(gauge.read(), timeout=3))
+    value = await retry(max_retries=5)(
+        lambda: asyncio.wait_for(gauge.read(), timeout=3)
+    )
     print(value)
 
     await asyncio.sleep(5)
