@@ -6,9 +6,9 @@ authors = ["Alasdair <alnessy@hotmail.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
-multipledispatch = "^0.6.0"
 janus = "^0.6.1"
 pydantic = "^1.8.1"
+multimethod = "^1.5"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.2"
@@ -16,14 +16,15 @@ pytest-cov = "^2.10.0"
 snakeviz = "^2.1.0"
 black = {version = "^20.8b1", allow-prereleases = true}
 pytest-asyncio = "^0.14.0"
+aiomonitor = "^0.4.5"
 
 [tool.poetry.scripts]
 main = "phoenix.main:main"
 
+[tool.pytest.ini_options]
+log_cli = "True"
+log_cli_level = "DEBUG"
 [build-system]
 requires = ["poetry>=1.0"]
 build-backend = "poetry.masonry.api"
 
-[tool.pytest.ini_options]
-log_cli = "True"
-log_cli_level = "DEBUG"

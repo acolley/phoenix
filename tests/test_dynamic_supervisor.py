@@ -2,14 +2,17 @@ import asyncio
 import pytest
 from typing import Tuple
 
-from phoenix import ActorId, ActorSystem, Behaviour, Context, DynamicSupervisor, retry
+from phoenix.actor import Actor, ActorId, Behaviour, Context
 from phoenix.dataclasses import dataclass
+from phoenix.dynamic_supervisor import ChildSpec, DynamicSupervisor, RestartWhen
+from phoenix.retry import retry
+from phoenix.system.system import ActorSystem
 
 
 @pytest.fixture
 async def actor_system() -> ActorSystem:
     system = ActorSystem("system")
-    task = asyncio.create_task(system.run())
+    await system.start()
     yield system
     await system.shutdown()
 
@@ -21,9 +24,6 @@ async def test_restart(actor_system: ActorSystem):
         reply_to: ActorId
         msg: str
 
-    async def start(context: Context) -> Context:
-        return context
-
     error = True
 
     async def handle(state: Context, msg: Message) -> Tuple[Behaviour, Context]:
@@ -34,10 +34,13 @@ async def test_restart(actor_system: ActorSystem):
         await state.cast(msg.reply_to, msg.msg)
         return Behaviour.done, state
 
+    async def start(context: Context) -> Actor:
+        return Actor(state=context, handler=handle)
+
     supervisor = await DynamicSupervisor.new(
         context=actor_system, name="DynamicSupervisor"
     )
-    child_id = await supervisor.start_child(start, handle, dict(name="Hello"))
+    child_id = await supervisor.start_child(ChildSpec(start=start, options=dict(name="Hello"), restart_when=RestartWhen.permanent))
 
     resp = await retry()(
         lambda: asyncio.wait_for(
