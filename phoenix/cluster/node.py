@@ -65,25 +65,36 @@ async def start(context: Context, host: str, port: int) -> Actor:
     server = await asyncio.start_server(on_connected, host=host, port=port)
     logger.debug("Cluster Node listening at %s:%s", host, port)
 
-    return Actor(state=State(
-        context=context,
-        host=host,
-        port=port,
-        systems=[],
-        system_registry=registry.Registry(actor_id=system_registry, context=context),
-        server=server,
-    ), handler=handle, on_exit=handle)
+    return Actor(
+        state=State(
+            context=context,
+            host=host,
+            port=port,
+            systems=[],
+            system_registry=registry.Registry(
+                actor_id=system_registry, context=context
+            ),
+            server=server,
+        ),
+        handler=handle,
+        on_exit=handle,
+    )
 
 
 @multimethod
 async def handle(state: State, msg: Connected) -> Tuple[Behaviour, State]:
     system = await state.context.spawn(
-        partial(remote_actor_system.start, conn=msg.conn, systems=state.system_registry.actor_id),
+        partial(
+            remote_actor_system.start,
+            conn=msg.conn,
+            systems=state.system_registry.actor_id,
+        ),
         name=f"RemoteActorSystem.{uuid.uuid1()}",
     )
     await state.context.watch(system)
     state.systems.append(system)
     return Behaviour.done, state
+
 
 @multimethod
 async def handle(state: State, msg: Down) -> Tuple[Behaviour, State]:

@@ -4,7 +4,19 @@ import logging
 from multimethod import multimethod
 from typing import List, Tuple
 
-from phoenix.actor import Actor, ActorId, ActorFactory, ActorSpawnOptions, ActorStart, Behaviour, Context, Down, ExitReason, Shutdown, Stop
+from phoenix.actor import (
+    Actor,
+    ActorId,
+    ActorFactory,
+    ActorSpawnOptions,
+    ActorStart,
+    Behaviour,
+    Context,
+    Down,
+    ExitReason,
+    Shutdown,
+    Stop,
+)
 from phoenix.connection import Connection
 from phoenix.dataclasses import dataclass
 
@@ -20,6 +32,7 @@ class RestartWhen(Enum):
     Specifies what the Supervisor considers to
     be an abnormal termination.
     """
+
     permanent = 0
     """
     Always restarted.
@@ -112,7 +125,9 @@ async def handle(state: Uninitialised, msg: Init) -> Tuple[Behaviour, Supervisin
 async def handle(state: Supervising, msg: Down) -> Supervising:
     index = state.children.index(msg.actor_id)
     restart_when = state.specs[index].restart_when
-    if restart_when == RestartWhen.permanent or (restart_when == RestartWhen.transient and msg.reason not in [Shutdown(), Stop()]):
+    if restart_when == RestartWhen.permanent or (
+        restart_when == RestartWhen.transient and msg.reason not in [Shutdown(), Stop()]
+    ):
         if state.strategy == RestartStrategy.one_for_one:
             backoff = 2 ** state.restarts[index]
             logger.debug(

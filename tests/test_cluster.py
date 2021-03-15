@@ -131,9 +131,7 @@ async def test_call(unused_tcp_port: int):
 
     system2 = ActorSystem("system2", ("localhost", unused_tcp_port))
     await system2.start()
-    await system2.spawn(
-        partial(Ping.start, remote=receiver), name="Ping"
-    )
+    await system2.spawn(partial(Ping.start, remote=receiver), name="Ping")
 
     await received.wait()
 

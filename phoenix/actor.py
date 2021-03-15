@@ -1,6 +1,16 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Callable, Coroutine, Dict, Generic, Optional, Tuple, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Coroutine,
+    Dict,
+    Generic,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
 from phoenix.dataclasses import dataclass
 

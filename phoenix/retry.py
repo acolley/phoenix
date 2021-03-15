@@ -5,7 +5,11 @@ from typing import Any, Callable, Coroutine, Tuple, Union
 logger = logging.getLogger(__name__)
 
 
-def retry(max_retries: int = 5, backoff: Callable[[int], float] = lambda n: 2 ** n, exc: Union[Exception, Tuple[Exception]] = Exception):
+def retry(
+    max_retries: int = 5,
+    backoff: Callable[[int], float] = lambda n: 2 ** n,
+    exc: Union[Exception, Tuple[Exception]] = Exception,
+):
     async def _retry(func: Callable[[], Coroutine]):
         n = 0
         while n < max_retries:

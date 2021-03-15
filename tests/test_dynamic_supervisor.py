@@ -40,7 +40,11 @@ async def test_restart(actor_system: ActorSystem):
     supervisor = await DynamicSupervisor.new(
         context=actor_system, name="DynamicSupervisor"
     )
-    child_id = await supervisor.start_child(ChildSpec(start=start, options=dict(name="Hello"), restart_when=RestartWhen.permanent))
+    child_id = await supervisor.start_child(
+        ChildSpec(
+            start=start, options=dict(name="Hello"), restart_when=RestartWhen.permanent
+        )
+    )
 
     resp = await retry()(
         lambda: asyncio.wait_for(

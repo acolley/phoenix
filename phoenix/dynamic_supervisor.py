@@ -11,7 +11,18 @@ import uuid
 import time
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Union
 
-from phoenix.actor import Actor, ActorId, ActorSpawnOptions, ActorStart, Behaviour, Context, Down, ExitReason, Shutdown, Stop
+from phoenix.actor import (
+    Actor,
+    ActorId,
+    ActorSpawnOptions,
+    ActorStart,
+    Behaviour,
+    Context,
+    Down,
+    ExitReason,
+    Shutdown,
+    Stop,
+)
 from phoenix.cluster.protocol import (
     Accepted,
     ClusterNodeShutdown,
@@ -35,6 +46,7 @@ class RestartWhen(Enum):
     Specifies what the Supervisor considers to
     be an abnormal termination.
     """
+
     permanent = 0
     """
     Always restarted.
@@ -84,9 +96,9 @@ class Restart:
 
 
 async def start(context: Context) -> Actor:
-    return Actor(state=State(
-        context=context, specs=[], children=[], restarts=[]
-    ), handler=handle)
+    return Actor(
+        state=State(context=context, specs=[], children=[], restarts=[]), handler=handle
+    )
 
 
 @multimethod
@@ -104,7 +116,9 @@ async def handle(state: State, msg: StartChild) -> Tuple[Behaviour, State]:
 async def handle(state: State, msg: Down) -> State:
     index = state.children.index(msg.actor_id)
     restart_when = state.specs[index].restart_when
-    if restart_when == RestartWhen.permanent or (restart_when == RestartWhen.transient and msg.reason not in [Shutdown(), Stop()]):
+    if restart_when == RestartWhen.permanent or (
+        restart_when == RestartWhen.transient and msg.reason not in [Shutdown(), Stop()]
+    ):
         backoff = 2 ** state.restarts[index]
         await state.context.cast_after(
             state.context.actor_id,
@@ -155,9 +169,7 @@ class DynamicSupervisor:
         actor_id = await context.spawn(start, name=name)
         return DynamicSupervisor(actor_id=actor_id, context=context)
 
-    async def start_child(
-        self, spec: ChildSpec
-    ) -> ActorId:
+    async def start_child(self, spec: ChildSpec) -> ActorId:
         return await self.context.call(
             self.actor_id,
             partial(StartChild, spec=spec),

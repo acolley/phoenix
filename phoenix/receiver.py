@@ -24,7 +24,11 @@ class Receive:
 
 
 async def start(context: Context, conn: Connection, listener: ActorId) -> Actor:
-    return Actor(state=State(context=context, conn=conn, listener=listener), handler=handle, on_exit=handle)
+    return Actor(
+        state=State(context=context, conn=conn, listener=listener),
+        handler=handle,
+        on_exit=handle,
+    )
 
 
 @multimethod
