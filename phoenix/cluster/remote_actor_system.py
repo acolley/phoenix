@@ -57,18 +57,7 @@ async def start(context: Context, conn: Connection, systems: ActorId) -> Actor:
         systems (ActorId): Registry for system names to ActorIds.
     """
 
-    # async def recv():
-    #     try:
-    #         while True:
-    #             msg = await conn.recv()
-    #             await context.cast(context.actor_id, msg)
-    #     except (asyncio.IncompleteReadError, ConnectionResetError):
-    #         await context.cast(context.actor_id, Disconnected())
-
     # # TODO: reject connection after timeout if no Join has been received
-
-    # # TODO: replace with linked receiver actor
-    # task = asyncio.create_task(recv())
 
     recv = await context.spawn(
         partial(receiver.start, conn=conn, listener=context.actor_id),
@@ -121,12 +110,12 @@ async def handle(state: Member, msg: RemoteActorMessage) -> Tuple[Behaviour, Mem
 
 
 @multimethod
-async def handle(state: Member, msg: Shutdown) -> Tuple[Behaviour, None]:
+async def handle(state: Member, msg: Shutdown) -> Tuple[Behaviour, Member]:
     await state.conn.send(ClusterNodeShutdown())
     await state.context.cast(msg.reply_to, None)
-    return Behaviour.stop, None
+    return Behaviour.stop, state
 
 
 @multimethod
-async def handle(state: Member, msg: Leave) -> Tuple[Behaviour, None]:
-    return Behaviour.stop, None
+async def handle(state: Member, msg: Leave) -> Tuple[Behaviour, Member]:
+    return Behaviour.stop, state
