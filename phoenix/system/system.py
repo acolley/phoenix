@@ -115,10 +115,19 @@ async def run_actor(
 
 
 @dataclass
-class ActorHandle:
-    # TODO: store events for delayed processing
+class ActorUp:
+    actor_id: ActorId
     task: asyncio.Task
     queue: asyncio.Queue
+
+
+@dataclass
+class ActorDown:
+    actor_id: ActorId
+    reason: ExitReason
+
+
+ActorState = Union[ActorUp, ActorDown]
 
 
 @dataclass
@@ -197,7 +206,8 @@ class ActorSystem(Context):
 
     @multimethod
     async def handle_message(self, msg: ShutdownSystem):
-        for key, actor in self.actors.items():
+        up = ((key, actor) for key, actor in self.actors.items() if isinstance(actor, ActorUp))
+        for key, actor in up:
             logger.debug("Shutdown Actor: [%s]", key)
             actor.task.cancel()
             try:
@@ -205,14 +215,14 @@ class ActorSystem(Context):
             except asyncio.TimeoutError:
                 # Second cancel after timeout to
                 # kill badly behaving actors.
-                logger.debug("[%s] Force kill after shutdown timeout", key)
+                logger.debug("[%s] Force kill actor after shutdown timeout", key)
                 actor.task.cancel()
 
         await msg.reply_to.put(None)
 
     @multimethod
     async def handle_message(self, msg: SpawnActor):
-        if msg.actor_id in self.actors:
+        if isinstance(self.actors.get(msg.actor_id), ActorUp):
             await msg.reply_to.put(ActorExists(msg.actor_id))
             return
         # TODO: bounded queues for back pressure to prevent overload
@@ -222,25 +232,46 @@ class ActorSystem(Context):
             run_actor(context, self.messages, queue, msg.start),
             name=str(msg.actor_id),
         )
-        actor = ActorHandle(task=task, queue=queue)
+        actor = ActorUp(actor_id=msg.actor_id, task=task, queue=queue)
         self.actors[msg.actor_id] = actor
         logger.debug("[%s] Actor Spawned", str(msg.actor_id))
         await msg.reply_to.put(msg.actor_id)
 
     @multimethod
     async def handle_message(self, msg: WatchActor):
-        if msg.watcher not in self.actors:
+        try:
+            watcher = self.actors[msg.watcher]
+        except KeyError:
             await msg.reply_to.put(NoSuchActor(msg.watcher))
             return
+        if isinstance(watcher, ActorDown):
+            await msg.reply_to.put(NoSuchActor(msg.watcher))
+            return
+
         if msg.watched not in self.actors:
             await msg.reply_to.put(NoSuchActor(msg.watched))
             return
+        
+        watched = self.actors[msg.watched]
+
+        # Notify immediately if watched actor is Down
+        if isinstance(watched, ActorDown):
+            await self.cast(
+                watcher.actor_id,
+                Down(actor_id=watched.actor_id, reason=watched.reason),
+            )
+            await msg.reply_to.put(None)
+            return
+        
         self.watchers[msg.watched].add(msg.watcher)
         self.watched[msg.watcher].add(msg.watched)
         await msg.reply_to.put(None)
 
     @multimethod
     async def handle_message(self, msg: LinkActors):
+        # TODO: if one actor is already down and the 
+        # other is up then stop the linked actor
+        # immediately.
         if msg.a not in self.actors:
             await msg.reply_to.put(NoSuchActor(msg.a))
             return
@@ -261,7 +292,7 @@ class ActorSystem(Context):
             str(msg.actor_id),
             str(msg.reason),
         )
-        del self.actors[msg.actor_id]
+        self.actors[msg.actor_id] = ActorDown(actor_id=msg.actor_id, reason=msg.reason)
 
         # Remove as a watcher of other Actors
         for watcher in self.watched.pop(msg.actor_id, set()):
@@ -392,6 +423,8 @@ class ActorSystem(Context):
                 actor = self.actors[actor_id]
             except KeyError:
                 raise NoSuchActor(actor_id)
+            if isinstance(actor, ActorDown):
+                raise NoSuchActor(actor_id)
             await actor.queue.put(msg)
         else:
             if self.conn is None:
@@ -424,6 +457,8 @@ class ActorSystem(Context):
             try:
                 actor = self.actors[actor_id]
             except KeyError:
+                raise NoSuchActor(actor_id)
+            if isinstance(actor, ActorDown):
                 raise NoSuchActor(actor_id)
 
             reply = None
