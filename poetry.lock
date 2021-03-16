@@ -1,25 +1,5 @@
 [[package]]
 category = "dev"
-description = "Asynchronous console and interfaces for asyncio"
-name = "aioconsole"
-optional = false
-python-versions = ">=3.6"
-version = "0.3.1"
-
-[[package]]
-category = "dev"
-description = "aiomonitor adds monitor and python REPL capabilities for asyncio application"
-name = "aiomonitor"
-optional = false
-python-versions = "*"
-version = "0.4.5"
-
-[package.dependencies]
-aioconsole = "*"
-terminaltables = "*"
-
-[[package]]
-category = "dev"
 description = "A small Python module for determining appropriate platform-specific dirs, e.g. a \"user data dir\"."
 name = "appdirs"
 optional = false
@@ -263,14 +243,6 @@ tornado = ">=2.0"
 
 [[package]]
 category = "dev"
-description = "Generate simple tables in terminals from a nested list of strings."
-name = "terminaltables"
-optional = false
-python-versions = "*"
-version = "3.1.0"
-
-[[package]]
-category = "dev"
 description = "Python Library for Tom's Obvious, Minimal Language"
 name = "toml"
 optional = false
@@ -302,18 +274,11 @@ python-versions = "*"
 version = "3.7.4.3"
 
 [metadata]
-content-hash = "d9de239a6a4cdeced87d30230ec11ec57129e0a428d66d4f3a56f7fb05f52b7f"
+content-hash = "cd2831df60c087021b06af2cdd7156a7c3410454466f06d7c7f599396482a93f"
 lock-version = "1.0"
 python-versions = "^3.8"
 
 [metadata.files]
-aioconsole = [
-    {file = "aioconsole-0.3.1.tar.gz", hash = "sha256:7c038bb40b7690bf5be6b17154830b7bff25e7be1c02d8420a346c3efbd5d8e5"},
-]
-aiomonitor = [
-    {file = "aiomonitor-0.4.5-py3-none-any.whl", hash = "sha256:5c7ac38b2ee59cbad87162ef5c45d72c7b57b94c8a93e7f462184bf10f9ebccd"},
-    {file = "aiomonitor-0.4.5.tar.gz", hash = "sha256:6232c1ab14bf06cd7217845801c27340032f74e283bdaf32d01cdd3b7c673d0e"},
-]
 appdirs = [
     {file = "appdirs-1.4.4-py2.py3-none-any.whl", hash = "sha256:a841dacd6b99318a741b166adb07e19ee71a274450e68237b4650ca1055ab128"},
     {file = "appdirs-1.4.4.tar.gz", hash = "sha256:7d5d0167b2b1ba821647616af46a749d1c653740dd0d2415100fe26e27afdf41"},
@@ -509,9 +474,6 @@ regex = [
 snakeviz = [
     {file = "snakeviz-2.1.0-py2.py3-none-any.whl", hash = "sha256:8ce375b18ae4a749516d7e6c6fbbf8be6177c53974f53534d8eadb646cd279b1"},
     {file = "snakeviz-2.1.0.tar.gz", hash = "sha256:92ad876fb6a201a7e23a6b85ea96d9643a51e285667c253a8653643804f7cb68"},
-]
-terminaltables = [
-    {file = "terminaltables-3.1.0.tar.gz", hash = "sha256:f3eb0eb92e3833972ac36796293ca0906e998dc3be91fbe1f8615b331b853b81"},
 ]
 toml = [
     {file = "toml-0.10.2-py2.py3-none-any.whl", hash = "sha256:806143ae5bfb6a3c6e736a764057db0e6a0e05e338b5630894a5f779cabb4f9b"},

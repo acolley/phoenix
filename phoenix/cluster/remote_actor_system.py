@@ -77,14 +77,14 @@ async def start(context: Context, conn: Connection, systems: ActorId) -> Actor:
 
 
 @multimethod
-async def handle(state: Joining, msg: Join) -> Tuple[Behaviour, Optional[Member]]:
+async def handle(state: Joining, msg: Join) -> Tuple[Behaviour, Member]:
     try:
         await retry(exc=NoSuchActor)(
             lambda: state.systems.put(msg.name, state.context.actor_id)
         )
     except KeyExists:
         await state.conn.send(Rejected())
-        return Behaviour.stop, None
+        return Behaviour.stop, state
     else:
         await state.conn.send(Accepted())
         return Behaviour.done, Member(
