@@ -39,6 +39,4 @@ class RequestHandler:
         return cls(actor_id=actor_id, context=context)
 
     async def hello(self, request: Request) -> Response:
-        return await self.context.call(
-            self.actor_id, partial(Hello, request=request)
-        )
+        return await self.context.call(self.actor_id, partial(Hello, request=request))

@@ -85,14 +85,20 @@ class Gauge:
 
 async def main_async():
     system = ActorSystem("system")
-    task = asyncio.create_task(system.run())
+    await system.start()
 
     supervisor = await Supervisor.new(
         system,
         name="Supervisor.Gauge",
     )
     await supervisor.init(
-        children=[ChildSpec(start=start, options=dict(name="Gauge"), restart_when=RestartWhen.permanent)],
+        children=[
+            ChildSpec(
+                start=start,
+                options=dict(name="Gauge"),
+                restart_when=RestartWhen.permanent,
+            )
+        ],
         strategy=RestartStrategy.one_for_one,
     )
     gauge = Gauge(actor_id=ActorId(system_id="system", value="Gauge"), ctx=system)

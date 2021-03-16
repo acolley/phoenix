@@ -206,7 +206,11 @@ class ActorSystem(Context):
 
     @multimethod
     async def handle_message(self, msg: ShutdownSystem):
-        up = ((key, actor) for key, actor in self.actors.items() if isinstance(actor, ActorUp))
+        up = (
+            (key, actor)
+            for key, actor in self.actors.items()
+            if isinstance(actor, ActorUp)
+        )
         for key, actor in up:
             logger.debug("Shutdown Actor: [%s]", key)
             actor.task.cancel()
@@ -251,7 +255,7 @@ class ActorSystem(Context):
         if msg.watched not in self.actors:
             await msg.reply_to.put(NoSuchActor(msg.watched))
             return
-        
+
         watched = self.actors[msg.watched]
 
         # Notify immediately if watched actor is Down
@@ -262,14 +266,14 @@ class ActorSystem(Context):
             )
             await msg.reply_to.put(None)
             return
-        
+
         self.watchers[msg.watched].add(msg.watcher)
         self.watched[msg.watcher].add(msg.watched)
         await msg.reply_to.put(None)
 
     @multimethod
     async def handle_message(self, msg: LinkActors):
-        # TODO: if one actor is already down and the 
+        # TODO: if one actor is already down and the
         # other is up then stop the linked actor
         # immediately.
         if msg.a not in self.actors:
