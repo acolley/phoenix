@@ -8,7 +8,7 @@ from multimethod import multimethod
 import threading
 import uuid
 import time
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Set, Tuple, Union
 
 from phoenix.actor import (
     Actor,
@@ -143,6 +143,12 @@ class SpawnActor:
 
 
 @dataclass
+class StopActor:
+    reply_to: Queue
+    actor_id: ActorId
+
+
+@dataclass
 class WatchActor:
     reply_to: Queue
     watcher: ActorId
@@ -165,6 +171,11 @@ class ActorExited:
 @dataclass
 class ShutdownSystem:
     reply_to: Queue
+
+
+@dataclass
+class ActorStats:
+    mailbox_size: int
 
 
 class NoClusterConnection(Exception):
@@ -240,6 +251,18 @@ class ActorSystem(Context):
         self.actors[msg.actor_id] = actor
         logger.debug("[%s] Actor Spawned", str(msg.actor_id))
         await msg.reply_to.put(msg.actor_id)
+    
+    @multimethod
+    async def handle_message(self, msg: StopActor):
+        if isinstance(self.actors.get(msg.actor_id), ActorDown):
+            await msg.reply_to.put(NoSuchActor(msg.actor_id))
+            return
+        
+        actor = self.actors[msg.actor_id]
+        actor.task.cancel()
+        await actor.task
+
+        await msg.reply_to.put(None)
 
     @multimethod
     async def handle_message(self, msg: WatchActor):
@@ -369,6 +392,22 @@ class ActorSystem(Context):
         if isinstance(reply, Exception):
             raise reply
         return reply
+    
+    async def stop(self, actor_id: ActorId):
+        """
+        Note: not thread-safe.
+        """
+        reply_to = Queue()
+        await self.messages.put(
+            StopActor(
+                reply_to=reply_to,
+                actor_id=actor_id,
+            )
+        )
+        reply = await reply_to.get()
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
 
     async def link(self, a: ActorId, b: ActorId):
         """
@@ -415,6 +454,15 @@ class ActorSystem(Context):
         reply = await reply_to.get()
         if isinstance(reply, Exception):
             raise reply
+    
+    async def list_actors(self) -> Set[ActorId]:
+        return set(self.actors.keys())
+
+    async def get_actor_stats(self, actor_id: ActorId) -> ActorStats:
+        actor = self.actors[actor_id]
+        return ActorStats(
+            mailbox_size=actor.queue.qsize(),
+        )
 
     async def cast(self, actor_id: ActorId, msg: Any):
         """
@@ -456,6 +504,9 @@ class ActorSystem(Context):
 
         Note: not thread-safe.
         """
+        # FIXME: potential for unbounded response actor
+        # storage as Down actors are stored indefinitely
+        # and response actors are unique.
         start = time.monotonic()
         if actor_id.system_id == self.name:
             try:
