@@ -3,7 +3,7 @@ import pytest
 from typing import Any
 
 from phoenix.actor import Actor, ActorId, Behaviour, Context, Shutdown
-from phoenix.system.system import ActorDown, ActorStats, ActorSystem
+from phoenix.system.system import ActorDown, ActorStats, ActorSystem, SystemStats
 
 
 async def start(context: Context) -> Actor:
@@ -55,3 +55,13 @@ async def test_get_actor_stats(actor_system: ActorSystem):
     stats = await actor_system.get_actor_stats(actor_id)
 
     assert stats == ActorStats(mailbox_size=2)
+
+
+@pytest.mark.asyncio
+async def test_get_system_stats(actor_system: ActorSystem):
+    await actor_system.spawn(start, name="Actor1")
+    await actor_system.spawn(start, name="Actor2")
+
+    stats = await actor_system.get_system_stats()
+
+    assert stats == SystemStats(actor_count=2)

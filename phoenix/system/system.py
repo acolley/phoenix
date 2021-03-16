@@ -174,6 +174,11 @@ class ShutdownSystem:
 
 
 @dataclass
+class SystemStats:
+    actor_count: int
+
+
+@dataclass
 class ActorStats:
     mailbox_size: int
 
@@ -457,6 +462,10 @@ class ActorSystem(Context):
     
     async def list_actors(self) -> Set[ActorId]:
         return set(self.actors.keys())
+    
+    async def get_system_stats(self) -> SystemStats:
+        actor_count = len([actor for actor in self.actors.values() if isinstance(actor, ActorUp)])
+        return SystemStats(actor_count=actor_count)
 
     async def get_actor_stats(self, actor_id: ActorId) -> ActorStats:
         actor = self.actors[actor_id]
