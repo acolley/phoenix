@@ -4,10 +4,11 @@ import attr
 from attr.validators import instance_of
 from functools import partial
 import logging
+from multimethod import multimethod
 import sys
 
 from phoenix import router
-from phoenix.actor import Actor, ActorId, Context
+from phoenix.actor import Actor, ActorId, Context, ExitReason
 from phoenix.dataclasses import dataclass
 from phoenix.supervisor import RestartStrategy, Supervisor
 from phoenix.system.system import ActorSystem
@@ -41,15 +42,12 @@ async def start(context: Context, host: str, port: int) -> Actor:
     await runner.setup()
     site = web.TCPSite(runner, host, port)
     await site.start()
-    return Actor(state=State(runner=runner, router_id=router_id), handler=handle)
+    return Actor(state=State(runner=runner, router_id=router_id), handler=handle, on_exit=handle)
 
 
-async def handle(state: State, msg):
-    raise NotImplementedError
-
-
-async def cleanup(state: State):
-    pass
+@multimethod
+async def handle(state: State, msg: ExitReason):
+    await state.runner.cleanup()
 
 
 @dataclass
