@@ -48,7 +48,7 @@ class Context(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def spawn(self, start, handle, name=None) -> ActorId:
+    async def spawn(self, start, name=None) -> ActorId:
         raise NotImplementedError
 
     @abstractmethod

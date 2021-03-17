@@ -199,7 +199,7 @@ class Supervisor:
     context: Context
 
     @classmethod
-    async def new(cls, context, name=None) -> "Supervisor":
+    async def new(cls, context: Context, name=None) -> "Supervisor":
         actor_id = await context.spawn(
             start,
             name=name,

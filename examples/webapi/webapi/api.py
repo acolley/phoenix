@@ -10,7 +10,8 @@ import sys
 from phoenix import router
 from phoenix.actor import Actor, ActorId, Context, ExitReason
 from phoenix.dataclasses import dataclass
-from phoenix.supervisor import RestartStrategy, Supervisor
+from phoenix.retry import retry
+from phoenix.supervisor import ChildSpec, RestartStrategy, RestartWhen, Supervisor
 from phoenix.system.system import ActorSystem
 
 from webapi import handler
@@ -19,22 +20,29 @@ from webapi import handler
 @dataclass
 class State:
     runner: web.AppRunner
-    router_id: ActorId
 
 
 async def start(context: Context, host: str, port: int) -> Actor:
-    router_id = await context.spawn(
-        partial(
-            router.start,
-            workers=4,
-            start=handler.start,
-        ),
-        name="HttpApi.RequestHandlers",
+    supervisor = await Supervisor.new(
+        context=context,
+        name="Supervisor.HttpApi.RequestHandlers",
     )
-    context.link(context.actor_id, router_id)
+    await supervisor.init(
+        children=[
+            ChildSpec(
+                start=partial(router.start, workers=4, start=handler.start),
+                options=dict(name="HttpApi.RequestHandlers"),
+                restart_when=RestartWhen.permanent,
+            ),
+        ],
+        strategy=RestartStrategy.one_for_one,
+    )
+    await context.link(context.actor_id, supervisor.actor_id)
+
+    router_id = ActorId(system_id=context.actor_id.system_id, value="HttpApi.RequestHandlers")
 
     async def hello(request):
-        return await context.call(router_id, partial(handler.Hello, request=request))
+        return await retry(max_retries=1)(lambda: asyncio.wait_for(context.call(router_id, partial(handler.Hello, request=request)), timeout=3))
 
     app = web.Application()
     app.add_routes([web.get("/", hello)])
@@ -43,7 +51,7 @@ async def start(context: Context, host: str, port: int) -> Actor:
     site = web.TCPSite(runner, host, port)
     await site.start()
     return Actor(
-        state=State(runner=runner, router_id=router_id), handler=handle, on_exit=handle
+        state=State(runner=runner), handler=handle, on_exit=handle
     )
 
 
