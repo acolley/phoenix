@@ -18,8 +18,8 @@ from webapi import handler
 
 @dataclass
 class State:
-    runner: web.AppRunner = attr.ib(validator=instance_of(web.AppRunner))
-    router_id: ActorId = attr.ib(validator=instance_of(ActorId))
+    runner: web.AppRunner
+    router_id: ActorId
 
 
 async def start(context: Context, host: str, port: int) -> Actor:
@@ -69,8 +69,10 @@ async def main_async():
 
     api = await HttpApi.new(system, "localhost", 8080, name="HttpApi")
 
-    await system.run_forever()
-    await system.shutdown()
+    try:
+        await system.run_forever()
+    except KeyboardInterrupt:
+        await system.shutdown()
 
 
 def main():
