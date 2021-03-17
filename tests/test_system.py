@@ -15,14 +15,6 @@ async def handle(state: Context, msg: Any):
     return Behaviour.done, state
 
 
-@pytest.fixture
-async def actor_system():
-    system = ActorSystem("system")
-    await system.start()
-    yield system
-    await system.shutdown()
-
-
 @pytest.mark.asyncio
 async def test_stop(actor_system: ActorSystem):
     actor_id = await actor_system.spawn(start, name="Actor")
@@ -31,6 +23,15 @@ async def test_stop(actor_system: ActorSystem):
     assert actor_system.actors[actor_id] == ActorDown(
         actor_id=actor_id, reason=Shutdown()
     )
+
+
+@pytest.mark.asyncio
+async def test_spawn_temporary(actor_system: ActorSystem):
+    actor_id = await actor_system.spawn(start, name="Actor", temporary=True)
+
+    await actor_system.stop(actor_id)
+
+    assert actor_id not in actor_system.actors
 
 
 @pytest.mark.asyncio

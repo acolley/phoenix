@@ -119,6 +119,7 @@ class ActorUp:
     actor_id: ActorId
     task: asyncio.Task
     queue: asyncio.Queue
+    temporary: bool
 
 
 @dataclass
@@ -140,6 +141,7 @@ class SpawnActor:
     reply_to: Queue
     actor_id: ActorId
     start: ActorStart
+    temporary: bool
 
 
 @dataclass
@@ -184,6 +186,10 @@ class ActorStats:
 
 
 class NoClusterConnection(Exception):
+    pass
+
+
+class TemporaryActor(Exception):
     pass
 
 
@@ -252,7 +258,7 @@ class ActorSystem(Context):
             run_actor(context, self.messages, queue, msg.start),
             name=str(msg.actor_id),
         )
-        actor = ActorUp(actor_id=msg.actor_id, task=task, queue=queue)
+        actor = ActorUp(actor_id=msg.actor_id, task=task, queue=queue, temporary=msg.temporary)
         self.actors[msg.actor_id] = actor
         logger.debug("[%s] Actor Spawned", str(msg.actor_id))
         await msg.reply_to.put(msg.actor_id)
@@ -286,6 +292,10 @@ class ActorSystem(Context):
 
         watched = self.actors[msg.watched]
 
+        if watched.temporary:
+            await msg.reply_to.put(TemporaryActor(msg.watched))
+            return
+
         # Notify immediately if watched actor is Down
         if isinstance(watched, ActorDown):
             await self.cast(
@@ -313,6 +323,9 @@ class ActorSystem(Context):
         if msg.a == msg.b:
             await msg.reply_to.put(ValueError(f"{msg.a!r} == {msg.b!r}"))
             return
+        if self.actors[msg.a].temporary or self.actors[msg.b].temporary:
+            await msg.reply_to(TemporaryActor())
+            return
         self.links[msg.a].add(msg.b)
         self.links[msg.b].add(msg.a)
         await msg.reply_to.put(None)
@@ -324,7 +337,12 @@ class ActorSystem(Context):
             str(msg.actor_id),
             str(msg.reason),
         )
-        self.actors[msg.actor_id] = ActorDown(actor_id=msg.actor_id, reason=msg.reason)
+        actor = self.actors[msg.actor_id]
+        # Temporary actors are permanently removed
+        if actor.temporary:
+            del self.actors[msg.actor_id]
+        else:
+            self.actors[msg.actor_id] = ActorDown(actor_id=msg.actor_id, reason=msg.reason)
 
         # Remove as a watcher of other Actors
         for watcher in self.watched.pop(msg.actor_id, set()):
@@ -377,8 +395,15 @@ class ActorSystem(Context):
         self,
         start: Callable[["Context"], Coroutine],
         name=None,
+        temporary: bool = False,
     ) -> ActorId:
         """
+        Args:
+            temporary (bool): A temporary actor cannot be watched
+                 or linked against. It is permanently removed from
+                 the system once it has exited. Use temporary actors
+                 to perform one-off tasks.
+
         Note: not thread-safe.
 
         Raises:
@@ -391,6 +416,7 @@ class ActorSystem(Context):
                 reply_to=reply_to,
                 actor_id=actor_id,
                 start=start,
+                temporary=temporary,
             )
         )
         reply = await reply_to.get()
@@ -515,9 +541,8 @@ class ActorSystem(Context):
 
         Note: not thread-safe.
         """
-        # FIXME: potential for unbounded response actor
-        # storage as Down actors are stored indefinitely
-        # and response actors are unique.
+        # Prevent unbounded growth of exited response actors
+        # by designating them as temporary actors.
         start = time.monotonic()
         if actor_id.system_id == self.name:
             try:
@@ -540,7 +565,7 @@ class ActorSystem(Context):
                 return Actor(state=None, handler=_handle)
 
             reply_to = await self.spawn(
-                _start, name=f"Response.{actor_id.value}.{uuid.uuid1()}"
+                _start, name=f"Response.{actor_id.value}.{uuid.uuid1()}", temporary=True
             )
             msg = f(reply_to)
             # TODO: timeout in case a reply is never received to prevent
@@ -564,7 +589,7 @@ class ActorSystem(Context):
                 return Actor(state=None, handler=_handle)
 
             reply_to = await self.spawn(
-                _start, name=f"Response.{actor_id.value}.{uuid.uuid1()}"
+                _start, name=f"Response.{actor_id.value}.{uuid.uuid1()}", temporary=True
             )
             msg = f(reply_to)
             # TODO: timeout in case a reply is never received to prevent
