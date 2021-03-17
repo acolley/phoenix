@@ -57,6 +57,11 @@ class ChildSpec:
 
 
 @dataclass
+class ChildInfo:
+    actor_id: ActorId
+
+
+@dataclass
 class Uninitialised:
     context: Context
 
@@ -84,6 +89,11 @@ class Init:
 
 
 @dataclass
+class WhichChildren:
+    reply_to: ActorId
+
+
+@dataclass
 class Restart:
     """
     Internal message indicating that an actor
@@ -100,7 +110,6 @@ async def start(context: Context) -> Actor:
 
 @multimethod
 async def handle(state: Uninitialised, msg: Init) -> Tuple[Behaviour, Supervising]:
-    # TODO: transient actors so they are not restarted when stopped gracefully
     children = []
     restarts = []
     for spec in msg.children:
@@ -119,6 +128,19 @@ async def handle(state: Uninitialised, msg: Init) -> Tuple[Behaviour, Supervisin
             strategy=msg.strategy,
         ),
     )
+
+
+@multimethod
+async def handle(state: Uninitialised, msg: WhichChildren) -> Tuple[Behaviour, Uninitialised]:
+    await state.context.cast(msg.reply_to, [])
+    return Behaviour.done, state
+
+
+@multimethod
+async def handle(state: Supervising, msg: WhichChildren) -> Tuple[Behaviour, Supervising]:
+    children = [ChildInfo(actor_id=actor_id) for actor_id in state.children]
+    await state.context.cast(msg.reply_to, children)
+    return Behaviour.done, state
 
 
 @multimethod
@@ -188,3 +210,6 @@ class Supervisor:
         await self.context.call(
             self.actor_id, partial(Init, children=children, strategy=strategy)
         )
+
+    async def which_children(self) -> List[ChildInfo]:
+        return await self.context.call(self.actor_id, WhichChildren)
