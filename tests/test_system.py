@@ -28,7 +28,9 @@ async def test_stop(actor_system: ActorSystem):
     actor_id = await actor_system.spawn(start, name="Actor")
     await actor_system.stop(actor_id)
 
-    assert actor_system.actors[actor_id] == ActorDown(actor_id=actor_id, reason=Shutdown())
+    assert actor_system.actors[actor_id] == ActorDown(
+        actor_id=actor_id, reason=Shutdown()
+    )
 
 
 @pytest.mark.asyncio

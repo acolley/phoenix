@@ -42,7 +42,9 @@ async def start(context: Context, host: str, port: int) -> Actor:
     await runner.setup()
     site = web.TCPSite(runner, host, port)
     await site.start()
-    return Actor(state=State(runner=runner, router_id=router_id), handler=handle, on_exit=handle)
+    return Actor(
+        state=State(runner=runner, router_id=router_id), handler=handle, on_exit=handle
+    )
 
 
 @multimethod

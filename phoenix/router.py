@@ -34,7 +34,13 @@ async def start(context: Context, workers: int, start) -> Actor:
     return Actor(
         state=State(
             context=context,
-            actors=[ActorId(system_id=context.actor_id.system_id, value=f"{context.actor_id.value}.{i}") for i in range(workers)],
+            actors=[
+                ActorId(
+                    system_id=context.actor_id.system_id,
+                    value=f"{context.actor_id.value}.{i}",
+                )
+                for i in range(workers)
+            ],
             index=0,
         ),
         handler=handle,

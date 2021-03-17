@@ -256,13 +256,13 @@ class ActorSystem(Context):
         self.actors[msg.actor_id] = actor
         logger.debug("[%s] Actor Spawned", str(msg.actor_id))
         await msg.reply_to.put(msg.actor_id)
-    
+
     @multimethod
     async def handle_message(self, msg: StopActor):
         if isinstance(self.actors.get(msg.actor_id), ActorDown):
             await msg.reply_to.put(NoSuchActor(msg.actor_id))
             return
-        
+
         actor = self.actors[msg.actor_id]
         actor.task.cancel()
         await actor.task
@@ -397,7 +397,7 @@ class ActorSystem(Context):
         if isinstance(reply, Exception):
             raise reply
         return reply
-    
+
     async def stop(self, actor_id: ActorId):
         """
         Note: not thread-safe.
@@ -459,12 +459,14 @@ class ActorSystem(Context):
         reply = await reply_to.get()
         if isinstance(reply, Exception):
             raise reply
-    
+
     async def list_actors(self) -> Set[ActorId]:
         return set(self.actors.keys())
-    
+
     async def get_system_stats(self) -> SystemStats:
-        actor_count = len([actor for actor in self.actors.values() if isinstance(actor, ActorUp)])
+        actor_count = len(
+            [actor for actor in self.actors.values() if isinstance(actor, ActorUp)]
+        )
         return SystemStats(actor_count=actor_count)
 
     async def get_actor_stats(self, actor_id: ActorId) -> ActorStats:
