@@ -32,8 +32,48 @@ logger = logging.getLogger(__name__)
 @dataclass
 class State:
     context: Context
-    host: str
-    port: int
+    systems: List[ActorId]
+    system_registry: registry.Registry[str, ActorId]
+    server: Server
+
+
+@dataclass
+class Joining:
+    """
+    Joining the cluster.
+    """
+
+    context: Context
+    systems: List[ActorId]
+    system_registry: registry.Registry[str, ActorId]
+    server: Server
+
+
+@dataclass
+class Leader:
+    """
+    Node is acting as the cluster Leader.
+
+    The cluster Leader is responsible for node lifecycle
+    management.
+    """
+
+    context: Context
+    systems: List[ActorId]
+    system_registry: registry.Registry[str, ActorId]
+    server: Server
+
+
+@dataclass
+class Follower:
+    """
+    Node is acting as a cluster Follower.
+
+    Cluster Followers can route messages to and from
+    registered actor systems from and to
+    """
+
+    context: Context
     systems: List[ActorId]
     system_registry: registry.Registry[str, ActorId]
     server: Server

@@ -9,6 +9,8 @@ python = "^3.8"
 janus = "^0.6.1"
 pydantic = "^1.8.1"
 multimethod = "^1.5"
+aetcd3 = { git = "https://github.com/acolley/aetcd3.git" }
+aiohttp = "^3.7.4"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.2"

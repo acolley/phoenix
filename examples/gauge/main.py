@@ -115,6 +115,6 @@ async def main_async():
     await system.shutdown()
 
 
-def main():
+if __name__ == "__main__":
     logging.basicConfig(format="%(message)s", stream=sys.stderr, level=logging.DEBUG)
     asyncio.run(main_async())

@@ -1,6 +1,6 @@
 from typing import Any
 
-from phoenix.actor import ActorId
+from phoenix.actor import ActorId, Context
 from phoenix.dataclasses import dataclass
 
 
@@ -31,6 +31,11 @@ class RemoteActorMessage:
 
 
 @dataclass
+class Send:
+    msg: RemoteActorMessage
+
+
+@dataclass
 class ClusterNodeShutdown:
     pass
 
@@ -41,3 +46,14 @@ class ServerNotRunning(Exception):
 
 class SystemExists(Exception):
     pass
+
+
+@dataclass
+class ClusterNode:
+    actor_id: ActorId
+    context: Context
+
+    async def send(self, actor_id: ActorId, msg: Any):
+        await self.context.cast(
+            self.actor_id, Send(RemoteActorMessage(actor_id=actor_id, msg=msg))
+        )
