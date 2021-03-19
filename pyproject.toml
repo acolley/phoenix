@@ -23,6 +23,7 @@ main = "phoenix.main:main"
 [tool.pytest.ini_options]
 log_cli = "True"
 log_cli_level = "DEBUG"
+addopts = "--cov=phoenix --cov-branch --cov-report=term"
 
 [build-system]
 requires = ["poetry>=1.0"]
