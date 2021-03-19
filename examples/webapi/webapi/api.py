@@ -39,10 +39,17 @@ async def start(context: Context, host: str, port: int) -> Actor:
     )
     await context.link(context.actor_id, supervisor.actor_id)
 
-    router_id = ActorId(system_id=context.actor_id.system_id, value="HttpApi.RequestHandlers")
+    router_id = ActorId(
+        system_id=context.actor_id.system_id, value="HttpApi.RequestHandlers"
+    )
 
     async def hello(request):
-        return await retry(max_retries=1)(lambda: asyncio.wait_for(context.call(router_id, partial(handler.Hello, request=request)), timeout=3))
+        return await retry(max_retries=1)(
+            lambda: asyncio.wait_for(
+                context.call(router_id, partial(handler.Hello, request=request)),
+                timeout=3,
+            )
+        )
 
     app = web.Application()
     app.add_routes([web.get("/", hello)])
@@ -50,9 +57,7 @@ async def start(context: Context, host: str, port: int) -> Actor:
     await runner.setup()
     site = web.TCPSite(runner, host, port)
     await site.start()
-    return Actor(
-        state=State(runner=runner), handler=handle, on_exit=handle
-    )
+    return Actor(state=State(runner=runner), handler=handle, on_exit=handle)
 
 
 @multimethod

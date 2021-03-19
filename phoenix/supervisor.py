@@ -131,13 +131,17 @@ async def handle(state: Uninitialised, msg: Init) -> Tuple[Behaviour, Supervisin
 
 
 @multimethod
-async def handle(state: Uninitialised, msg: WhichChildren) -> Tuple[Behaviour, Uninitialised]:
+async def handle(
+    state: Uninitialised, msg: WhichChildren
+) -> Tuple[Behaviour, Uninitialised]:
     await state.context.cast(msg.reply_to, [])
     return Behaviour.done, state
 
 
 @multimethod
-async def handle(state: Supervising, msg: WhichChildren) -> Tuple[Behaviour, Supervising]:
+async def handle(
+    state: Supervising, msg: WhichChildren
+) -> Tuple[Behaviour, Supervising]:
     children = [ChildInfo(actor_id=actor_id) for actor_id in state.children]
     await state.context.cast(msg.reply_to, children)
     return Behaviour.done, state

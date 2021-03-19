@@ -258,7 +258,9 @@ class ActorSystem(Context):
             run_actor(context, self.messages, queue, msg.start),
             name=str(msg.actor_id),
         )
-        actor = ActorUp(actor_id=msg.actor_id, task=task, queue=queue, temporary=msg.temporary)
+        actor = ActorUp(
+            actor_id=msg.actor_id, task=task, queue=queue, temporary=msg.temporary
+        )
         self.actors[msg.actor_id] = actor
         logger.debug("[%s] Actor Spawned", str(msg.actor_id))
         await msg.reply_to.put(msg.actor_id)
@@ -342,7 +344,9 @@ class ActorSystem(Context):
         if actor.temporary:
             del self.actors[msg.actor_id]
         else:
-            self.actors[msg.actor_id] = ActorDown(actor_id=msg.actor_id, reason=msg.reason)
+            self.actors[msg.actor_id] = ActorDown(
+                actor_id=msg.actor_id, reason=msg.reason
+            )
 
         # Remove as a watcher of other Actors
         for watcher in self.watched.pop(msg.actor_id, set()):
