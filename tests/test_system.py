@@ -68,3 +68,10 @@ async def test_get_system_stats(actor_system: ActorSystem):
     stats = await actor_system.get_system_stats()
 
     assert stats == SystemStats(actor_count=2)
+
+
+@pytest.mark.asyncio
+async def test_call_timeout(actor_system: ActorSystem):
+    actor_id = await actor_system.spawn(start, name="Actor")
+    with pytest.raises(asyncio.TimeoutError):
+        await actor_system.call(actor_id, lambda reply_to: "hello", timeout=1)

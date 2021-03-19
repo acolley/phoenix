@@ -534,10 +534,15 @@ class ActorSystem(Context):
         self.timers[timer_id] = Timer(task=task)
         return timer_id
 
-    async def call(self, actor_id: ActorId, f):
+    async def call(self, actor_id: ActorId, f, timeout=None):
         """
         Send a message to the actor with id ``actor_id``
         and await a response.
+
+        Args:
+            timeout (Optional[float]): Time in seconds before
+                the call is aborted if it has not yet received
+                a reply.
 
         Note: not thread-safe.
         """
@@ -571,7 +576,11 @@ class ActorSystem(Context):
             # TODO: timeout in case a reply is never received to prevent
             # unbounded reply actors from accumulating?
             await actor.queue.put(msg)
-            await received.wait()
+            try:
+                await asyncio.wait_for(received.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                await self.stop(reply_to)
+                raise
         else:
             if self.conn is None:
                 raise NoClusterConnection
@@ -595,7 +604,11 @@ class ActorSystem(Context):
             # TODO: timeout in case a reply is never received to prevent
             # unbounded reply actors from accumulating?
             await self.conn.send(actor_id=actor_id, msg=msg)
-            await received.wait()
+            try:
+                await asyncio.wait_for(received.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                await self.stop(reply_to)
+                raise
         dt = time.monotonic() - start
         logger.debug("Call [time=%s] [%s] [%s]", str(dt), str(actor_id), repr(msg))
         return reply
