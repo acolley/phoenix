@@ -515,9 +515,11 @@ class ActorSystem(Context):
             try:
                 actor = self.actors[actor_id]
             except KeyError:
-                raise NoSuchActor(actor_id)
+                logger.debug("No such actor: [%s]", actor_id)
+                return
             if isinstance(actor, ActorDown):
-                raise NoSuchActor(actor_id)
+                logger.debug("Actor down: [%s]", actor_id)
+                return
             await actor.queue.put(msg)
         else:
             if self.conn is None:
@@ -553,66 +555,32 @@ class ActorSystem(Context):
         # Prevent unbounded growth of exited response actors
         # by designating them as temporary actors.
         start = time.monotonic()
-        if actor_id.system_id == self.name:
-            try:
-                actor = self.actors[actor_id]
-            except KeyError:
-                raise NoSuchActor(actor_id)
-            if isinstance(actor, ActorDown):
-                raise NoSuchActor(actor_id)
 
-            reply = None
-            received = asyncio.Event()
+        reply = None
+        received = asyncio.Event()
 
-            async def _handle(state: None, msg):
-                nonlocal reply
-                reply = msg
-                received.set()
-                return Behaviour.stop, state
+        async def _handle(state: None, msg):
+            nonlocal reply
+            reply = msg
+            received.set()
+            return Behaviour.stop, state
 
-            async def _start(ctx):
-                return Actor(state=None, handler=_handle)
+        async def _start(ctx):
+            return Actor(state=None, handler=_handle)
 
-            reply_to = await self.spawn(
-                _start, name=f"Response.{actor_id.value}.{uuid.uuid1()}", temporary=True
-            )
-            msg = f(reply_to)
-            # TODO: timeout in case a reply is never received to prevent
-            # unbounded reply actors from accumulating?
-            await actor.queue.put(msg)
-            try:
-                await asyncio.wait_for(received.wait(), timeout=timeout)
-            except asyncio.TimeoutError:
-                await self.stop(reply_to)
-                raise
-        else:
-            if self.conn is None:
-                raise NoClusterConnection
+        reply_to = await self.spawn(
+            _start, name=f"Response.{actor_id.value}.{uuid.uuid1()}", temporary=True
+        )
+        msg = f(reply_to)
+        # TODO: timeout in case a reply is never received to prevent
+        # unbounded reply actors from accumulating?
+        await self.cast(actor_id, msg)
+        try:
+            await asyncio.wait_for(received.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            await self.stop(reply_to)
+            raise
 
-            reply = None
-            received = asyncio.Event()
-
-            async def _handle(state: None, msg):
-                nonlocal reply
-                reply = msg
-                received.set()
-                return Behaviour.stop, state
-
-            async def _start(ctx):
-                return Actor(state=None, handler=_handle)
-
-            reply_to = await self.spawn(
-                _start, name=f"Response.{actor_id.value}.{uuid.uuid1()}", temporary=True
-            )
-            msg = f(reply_to)
-            # TODO: timeout in case a reply is never received to prevent
-            # unbounded reply actors from accumulating?
-            await self.conn.send(actor_id=actor_id, msg=msg)
-            try:
-                await asyncio.wait_for(received.wait(), timeout=timeout)
-            except asyncio.TimeoutError:
-                await self.stop(reply_to)
-                raise
         dt = time.monotonic() - start
         logger.debug("Call [time=%s] [%s] [%s]", str(dt), str(actor_id), repr(msg))
         return reply
