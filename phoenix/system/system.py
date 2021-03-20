@@ -115,6 +115,13 @@ async def run_actor(
 
 
 @dataclass
+class ActorSpawning:
+    actor_id: ActorId
+    queue: asyncio.Queue
+    temporary: bool
+
+
+@dataclass
 class ActorUp:
     actor_id: ActorId
     task: asyncio.Task
@@ -250,9 +257,14 @@ class ActorSystem(Context):
     async def handle_message(self, msg: SpawnActor):
         if isinstance(self.actors.get(msg.actor_id), ActorUp):
             await msg.reply_to.put(ActorExists(msg.actor_id))
-            return
-        # TODO: bounded queues for back pressure to prevent overload
+            return  # Queue is bounded for back pressure to prevent overload
+        # https://ferd.ca/queues-don-t-fix-overload.html
         queue = Queue(50)
+        self.actors[msg.actor_id] = ActorSpawning(
+            actor_id=msg.actor_id,
+            queue=queue,
+            temporary=msg.temporary,
+        )
         context = ActorContext(actor_id=msg.actor_id, system=self)
         task = self.event_loop.create_task(
             run_actor(context, self.messages, queue, msg.start),
