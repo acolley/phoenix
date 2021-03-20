@@ -140,6 +140,7 @@ ActorState = Union[ActorUp, ActorDown]
 
 @dataclass
 class Timer:
+    dest: ActorId
     task: asyncio.Task
 
 
@@ -178,6 +179,11 @@ class ActorExited:
 
 
 @dataclass
+class TimerFinished:
+    timer_id: TimerId
+
+
+@dataclass
 class ShutdownSystem:
     reply_to: Queue
 
@@ -212,6 +218,8 @@ class ActorSystem(Context):
         # Use a queue to serialize state changes
         self.messages = Queue()
         self.timers = {}
+        # Timers by destination ActorId
+        self.actor_timers = defaultdict(set)
         self.conn = None
         self.task = None
 
@@ -386,6 +394,25 @@ class ActorSystem(Context):
                 Down(actor_id=msg.actor_id, reason=msg.reason),
             )
 
+        # Cancel timers with msg.actor_id as destination
+        try:
+            timer_ids = self.actor_timers.pop(msg.actor_id)
+        except KeyError:
+            pass
+        else:
+            for timer_id in timer_ids:
+                timer = self.timers.pop(timer_id)
+                timer.task.cancel()
+                try:
+                    await timer.task
+                except asyncio.CancelledError:
+                    pass
+
+    @multimethod
+    async def handle_message(self, msg: TimerFinished):
+        timer = self.timers.pop(msg.timer_id)
+        self.actor_timers[timer.dest].remove(msg.timer_id)
+
     async def connect(self):
         host, port = self.cluster
         logger.debug("[%r] Connect to cluster (%s, %s)", self, str(host), str(port))
@@ -537,19 +564,20 @@ class ActorSystem(Context):
             if self.conn is None:
                 raise NoClusterConnection
 
-            # TODO: serialize remote sends via self.messages
+            # TODO: serialize remote sends via self.messages?
             await self.conn.send(actor_id=actor_id, msg=msg)
 
-    async def cast_after(self, actor_id: ActorId, msg, delay: float) -> TimerId:
+    async def send_after(self, dest: ActorId, msg: Any, delay: float) -> TimerId:
         timer_id = TimerId(str(uuid.uuid1()))
 
         async def _timer():
             await asyncio.sleep(delay)
-            await self.cast(actor_id, msg)
-            del self.timers[timer_id]
+            await self.cast(dest, msg)
+            await self.messages.put(TimerFinished(timer_id))
 
         task = asyncio.create_task(_timer())
-        self.timers[timer_id] = Timer(task=task)
+        self.timers[timer_id] = Timer(dest=dest, task=task)
+        self.actor_timers[dest].add(timer_id)
         return timer_id
 
     async def call(self, actor_id: ActorId, f, timeout=None):
@@ -615,8 +643,8 @@ class ActorContext(Context):
     async def cast(self, actor_id, msg):
         await self.system.cast(actor_id, msg)
 
-    async def cast_after(self, actor_id: ActorId, msg, delay: float) -> TimerId:
-        return await self.system.cast_after(actor_id, msg, delay)
+    async def send_after(self, dest: ActorId, msg, delay: float) -> TimerId:
+        return await self.system.send_after(dest, msg, delay)
 
     async def call(self, actor_id, msg):
         return await self.system.call(actor_id, msg)

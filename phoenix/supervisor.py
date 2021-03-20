@@ -163,7 +163,7 @@ async def handle(state: Supervising, msg: Down) -> Supervising:
                 str(msg.reason),
                 backoff,
             )
-            await state.context.cast_after(
+            await state.context.send_after(
                 state.context.actor_id,
                 Restart(actor_id=msg.actor_id, reason=msg.reason),
                 backoff,

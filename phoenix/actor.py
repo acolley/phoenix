@@ -40,7 +40,7 @@ class Context(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def cast_after(self, actor_id: ActorId, msg, delay: float) -> TimerId:
+    async def send_after(self, dest: ActorId, msg, delay: float) -> TimerId:
         raise NotImplementedError
 
     @abstractmethod

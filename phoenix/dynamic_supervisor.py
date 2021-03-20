@@ -120,7 +120,14 @@ async def handle(state: State, msg: Down) -> State:
         restart_when == RestartWhen.transient and msg.reason not in [Shutdown(), Stop()]
     ):
         backoff = 2 ** state.restarts[index]
-        await state.context.cast_after(
+        logger.debug(
+            "[%s] Supervisor Child Down: [%s]. Reason: [%s]. Restarting in %f seconds.",
+            str(state.context.actor_id),
+            msg.actor_id,
+            str(msg.reason),
+            backoff,
+        )
+        await state.context.send_after(
             state.context.actor_id,
             Restart(actor_id=msg.actor_id, reason=msg.reason),
             backoff,
