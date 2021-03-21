@@ -532,17 +532,21 @@ class ActorSystem(Context):
 
         Note: not thread-safe.
         """
-        reply_to = Queue()
-        await self.messages.put(
-            WatchActor(
-                reply_to=reply_to,
-                watcher=watcher,
-                watched=watched,
+        # Watch a remote actor
+        if msg.watched.actor_id.system_id != self.name:
+            await self.conn.watch(watcher=msg.watcher, watched=msg.watched)
+        else:
+            reply_to = Queue()
+            await self.messages.put(
+                WatchActor(
+                    reply_to=reply_to,
+                    watcher=watcher,
+                    watched=watched,
+                )
             )
-        )
-        reply = await reply_to.get()
-        if isinstance(reply, Exception):
-            raise reply
+            reply = await reply_to.get()
+            if isinstance(reply, Exception):
+                raise reply
 
     async def list_actors(self) -> Set[ActorId]:
         return set(self.actors.keys())

@@ -264,5 +264,26 @@ async def handle(
 
 
 @multimethod
+async def handle(
+    state: Union[Leading, Following], msg: WatchRemoteActor
+) -> Tuple[Behaviour, Union[Leading, Following]]:
+    try:
+        host, port = state.members[msg.msg.actor_id.system_id]
+    except KeyError:
+        logger.debug("No such ActorSystem: [%s]", msg.msg.actor_id.system_id)
+        return Behaviour.done, state
+
+    encoded = pickle.dumps(msg.msg)
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"http://{host}:{port}/messages", data=encoded) as resp:
+            try:
+                resp.raise_for_status()
+            except aiohttp.ClientResponseError:
+                logger.debug("", exc_info=True)
+    return Behaviour.done, state
+
+
+@multimethod
 async def handle(state: Union[Leading, Following], msg: ExitReason):
     await state.etcd.close()

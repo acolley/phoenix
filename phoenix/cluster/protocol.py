@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Any
 
 from phoenix.actor import ActorId, Context
@@ -36,6 +37,13 @@ class Send:
 
 
 @dataclass
+class WatchRemoteActor:
+    reply_to: ActorId
+    watcher: ActorId
+    watched: ActorId
+
+
+@dataclass
 class ClusterNodeShutdown:
     pass
 
@@ -56,4 +64,9 @@ class ClusterNode:
     async def send(self, actor_id: ActorId, msg: Any):
         await self.context.cast(
             self.actor_id, Send(RemoteActorMessage(actor_id=actor_id, msg=msg))
+        )
+
+    async def watch(self, watcher: ActorId, watched: ActorId):
+        return await self.context.call(
+            self.actor_id, partial(WatchRemoteActor, watcher=watcher, watched=watched)
         )
