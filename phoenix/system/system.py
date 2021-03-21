@@ -24,8 +24,10 @@ from phoenix.actor import (
     Stop,
     TimerId,
 )
+from phoenix.cluster.etcd import node
 from phoenix.cluster.protocol import (
     Accepted,
+    ClusterNode,
     ClusterNodeShutdown,
     Join,
     Leave,
@@ -189,6 +191,12 @@ class ShutdownSystem:
 
 
 @dataclass
+class ClusterConfig:
+    server: Tuple[str, int]
+    remote: Tuple[str, int]
+
+
+@dataclass
 class SystemStats:
     actor_count: int
 
@@ -207,7 +215,7 @@ class TemporaryActor(Exception):
 
 
 class ActorSystem(Context):
-    def __init__(self, name: str, cluster: Optional[Tuple[str, int]] = None):
+    def __init__(self, name: str, cluster: Optional[ClusterConfig] = None):
         self.name = name
         self.cluster = cluster
         self.event_loop = asyncio.get_running_loop()
@@ -220,6 +228,7 @@ class ActorSystem(Context):
         self.timers = {}
         # Timers by destination ActorId
         self.actor_timers = defaultdict(set)
+        self.cluster = cluster
         self.conn = None
         self.task = None
 
@@ -414,25 +423,31 @@ class ActorSystem(Context):
         self.actor_timers[timer.dest].remove(msg.timer_id)
 
     async def connect(self):
-        host, port = self.cluster
-        logger.debug("[%r] Connect to cluster (%s, %s)", self, str(host), str(port))
+        logger.debug("[%r] Connect to cluster [%s]", self, self.cluster)
         supervisor = await Supervisor.new(
             context=self,
-            name="Supervisor.ActorSystem.ClusterConnection",
+            name="Supervisor.ActorSystem.ClusterNode",
         )
         await supervisor.init(
             children=[
                 ChildSpec(
-                    start=partial(cluster_connection.start, host=host, port=port),
-                    options=dict(name="ActorSystem.ClusterConnection"),
+                    start=partial(
+                        node.start,
+                        name=self.name,
+                        address=self.cluster.server,
+                        etcd=self.cluster.remote,
+                    ),
+                    options=dict(name="ActorSystem.ClusterNode"),
                     # Do not restart when shutdown by cluster node
                     restart_when=RestartWhen.transient,
                 ),
             ],
             strategy=RestartStrategy.one_for_one,
         )
-        conn = ActorId(system_id=self.name, value="ActorSystem.ClusterConnection")
-        self.conn = cluster_connection.ClusterConnection(actor_id=conn, context=self)
+        self.conn = ClusterNode(
+            actor_id=ActorId(system_id=self.name, value="ActorSystem.ClusterNode"),
+            context=self,
+        )
 
     async def spawn(
         self,
