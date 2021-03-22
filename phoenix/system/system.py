@@ -168,6 +168,13 @@ class WatchActor:
 
 
 @dataclass
+class UnwatchActor:
+    reply_to: Queue
+    watcher: ActorId
+    watched: ActorId
+
+
+@dataclass
 class LinkActors:
     reply_to: Queue
     a: ActorId
@@ -338,6 +345,18 @@ class ActorSystem(Context):
 
         self.watchers[msg.watched].add(msg.watcher)
         self.watched[msg.watcher].add(msg.watched)
+        await msg.reply_to.put(None)
+
+    @multimethod
+    async def handle_message(self, msg: UnwatchActor):
+        try:
+            self.watchers[msg.watched].remove(msg.watcher)
+        except KeyError:
+            pass
+        try:
+            self.watchers[msg.watcher].remove(msg.watched)
+        except KeyError:
+            pass
         await msg.reply_to.put(None)
 
     @multimethod
@@ -544,6 +563,25 @@ class ActorSystem(Context):
         if isinstance(reply, Exception):
             raise reply
 
+    async def unwatch(self, watcher: ActorId, watched: ActorId):
+        """
+        Remove a watch between ``watcher`` and ``watched``.
+
+        Is a no-op if neither the watcher nor watched exists
+        or if there is no watch between them.
+        """
+        reply_to = Queue()
+        await self.messages.put(
+            UnwatchActor(
+                reply_to=reply_to,
+                watcher=watcher,
+                watched=watched,
+            )
+        )
+        reply = await reply_to.get()
+        if isinstance(reply, Exception):
+            raise reply
+
     async def list_actors(self) -> Set[ActorId]:
         return set(self.actors.keys())
 
@@ -667,8 +705,14 @@ class ActorContext(Context):
     async def spawn(self, start, name=None) -> ActorId:
         return await self.system.spawn(start, name=name)
 
-    async def watch(self, actor_id: ActorId):
-        await self.system.watch(self.actor_id, actor_id)
+    async def stop(self, actor_id: ActorId):
+        await self.system.stop(actor_id)
+
+    async def watch(self, watcher: ActorId, watched: ActorId):
+        await self.system.watch(watcher, watched)
+
+    async def unwatch(self, watcher: ActorId, watched: ActorId):
+        await self.system.unwatch(watcher, watched)
 
     async def link(self, a: ActorId, b: ActorId):
         await self.system.link(a, b)

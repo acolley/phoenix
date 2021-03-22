@@ -85,6 +85,16 @@ class StartChild:
 
 
 @dataclass
+class StopChild:
+    reply_to: ActorId
+    child: ActorId
+
+
+class NoSuchChild(Exception):
+    pass
+
+
+@dataclass
 class Restart:
     """
     Internal message indicating that an actor
@@ -104,11 +114,30 @@ async def start(context: Context) -> Actor:
 @multimethod
 async def handle(state: State, msg: StartChild) -> Tuple[Behaviour, State]:
     child = await state.context.spawn(msg.spec.start, **msg.spec.options)
-    await state.context.watch(child)
+    await state.context.watch(state.context.actor_id, child)
     state.specs.append(msg.spec)
     state.children.append(child)
     state.restarts.append(0)
     await state.context.cast(msg.reply_to, child)
+    return Behaviour.done, state
+
+
+@multimethod
+async def handle(state: State, msg: StopChild) -> Tuple[Behaviour, State]:
+    if msg.child not in state.children:
+        await state.context.cast(msg.reply_to, NoSuchChild(msg.child))
+        return Behaviour.done, state
+
+    await state.context.unwatch(state.context.actor_id, msg.child)
+    await state.context.stop(msg.child)
+
+    index = state.children.index(msg.child)
+    del state.specs[index]
+    del state.children[index]
+    del state.restarts[index]
+
+    await state.context.cast(msg.reply_to, None)
+
     return Behaviour.done, state
 
 
@@ -156,7 +185,7 @@ async def handle(state: State, msg: Restart) -> Tuple[Behaviour, State]:
         str(msg.reason),
     )
     child = await state.context.spawn(spec.start, **spec.options)
-    await state.context.watch(child)
+    await state.context.watch(state.context.actor_id, child)
     state.children[index] = child
     state.restarts[index] += 1
     return Behaviour.done, state
@@ -181,3 +210,11 @@ class DynamicSupervisor:
             self.actor_id,
             partial(StartChild, spec=spec),
         )
+
+    async def stop_child(self, child: ActorId):
+        resp = await self.context.call(
+            self.actor_id,
+            partial(StopChild, child=child),
+        )
+        if isinstance(resp, Exception):
+            raise resp

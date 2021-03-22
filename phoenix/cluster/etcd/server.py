@@ -10,7 +10,6 @@ from phoenix.actor import Actor, ActorId, Context, ExitReason
 from phoenix.dataclasses import dataclass
 from phoenix.retry import retry
 from phoenix.supervisor import ChildSpec, RestartStrategy, RestartWhen, Supervisor
-from phoenix.system.system import ActorSystem
 
 logger = logging.getLogger(__name__)
 

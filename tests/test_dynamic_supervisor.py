@@ -6,7 +6,7 @@ from phoenix.actor import Actor, ActorId, Behaviour, Context
 from phoenix.dataclasses import dataclass
 from phoenix.dynamic_supervisor import ChildSpec, DynamicSupervisor, RestartWhen
 from phoenix.retry import retry
-from phoenix.system.system import ActorSystem
+from phoenix.system.system import ActorDown, ActorSystem
 
 
 @pytest.fixture
@@ -55,3 +55,25 @@ async def test_restart(actor_system: ActorSystem):
         )
     )
     assert resp == "hello there"
+
+
+@pytest.mark.asyncio
+async def test_stop_child(actor_system: ActorSystem):
+    async def handle(state: Context, msg: None) -> Tuple[Behaviour, Context]:
+        raise ValueError
+
+    async def start(context: Context) -> Actor:
+        return Actor(state=context, handler=handle)
+
+    supervisor = await DynamicSupervisor.new(
+        context=actor_system, name="DynamicSupervisor"
+    )
+    child_id = await supervisor.start_child(
+        ChildSpec(
+            start=start, options=dict(name="Hello"), restart_when=RestartWhen.permanent
+        )
+    )
+
+    await supervisor.stop_child(child_id)
+
+    assert isinstance(actor_system.actors[child_id], ActorDown)

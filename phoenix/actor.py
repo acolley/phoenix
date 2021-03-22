@@ -52,7 +52,15 @@ class Context(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def watch(self, actor_id: ActorId):
+    async def stop(self, actor_id: ActorId):
+        raise NotImplementedError
+
+    @abstractmethod
+    async def watch(self, watcher: ActorId, watched: ActorId):
+        raise NotImplementedError
+
+    @abstractmethod
+    async def unwatch(self, watcher: ActorId, watched: ActorId):
         raise NotImplementedError
 
     @abstractmethod

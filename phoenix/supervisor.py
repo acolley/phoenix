@@ -114,7 +114,7 @@ async def handle(state: Uninitialised, msg: Init) -> Tuple[Behaviour, Supervisin
     restarts = []
     for spec in msg.children:
         child = await state.context.spawn(spec.start, **spec.options)
-        await state.context.watch(child)
+        await state.context.watch(state.context.actor_id, child)
         children.append(child)
         restarts.append(0)
     await state.context.cast(msg.reply_to, None)
@@ -191,7 +191,7 @@ async def handle(state: Supervising, msg: Restart) -> Tuple[Behaviour, Supervisi
         msg.actor_id,
     )
     child = await state.context.spawn(spec.start, **spec.options)
-    await state.context.watch(child)
+    await state.context.watch(state.context.actor_id, child)
     state.children[index] = child
     state.restarts[index] += 1
     return Behaviour.done, state
