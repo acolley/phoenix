@@ -38,7 +38,6 @@ SystemJoined("system3")
 @dataclass
 class State:
     context: Context
-    shard_count: int
     etcd: aetcd3.Etcd3Client
     spec_for: Callable[[Any], ChildSpec]
     supervisor: DynamicSupervisor
@@ -54,17 +53,18 @@ class Envelope:
 
 async def start(
     context: Context,
-    shard_count: int,
     etcd: Tuple[str, int],
     spec_for: Callable[[Any], ChildSpec],
 ) -> Actor:
     etcd = aetcd3.client(host=etcd[0], port=etcd[1])
 
+    lease = await aetcd3.lease(60)
+
     supervisor = DynamicSupervisor.new()
 
     # TODO: get shard nodes
     # TODO: watch for shard changes
-    # TODO: rebalance on shard change
+    # TODO: rebalance on shard change: stop all actors no longer on local shard
 
     return Actor(
         state=State(
@@ -94,6 +94,22 @@ async def handle(state: State, msg: Envelope) -> Tuple[Behaviour, State]:
     else:
         pass
     return Behaviour.done, state
+
+
+@multimethod
+async def handle(state: State, msg: aetcd3.events.PutEvent):
+    shards.append(shard)
+
+    for entity_id, entity in state.entities.items():
+        pass
+
+
+@multimethod
+async def handle(state: State, msg: aetcd3.events.DeleteEvent):
+    shards.remove(shard)
+
+    for entity_id, entity in state.entities.items():
+        pass
 
 
 @multimethod
