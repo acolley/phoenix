@@ -69,7 +69,7 @@ async def campaign(
 ) -> Tuple[bool, Optional[str]]:
     lease = await etcd.lease(60)
     elected, _ = await etcd.transaction(
-        compare=[etcd.transactions.version("/leader") == 0],
+        compare=[etcd.transactions.create("/leader") == 0],
         success=[etcd.transactions.put("/leader", f"{address[0]}:{address[1]}", lease)],
         failure=[],
     )
