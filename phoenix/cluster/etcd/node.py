@@ -1,3 +1,13 @@
+"""
+A node in a cluster.
+
+Enables actor systems to coordinate to achieve
+shared goals.
+
+Responsible for other cluster functionality such
+as sharding.
+"""
+
 import aetcd3
 import aiohttp
 from functools import partial
@@ -45,6 +55,11 @@ class Following:
 
 @dataclass
 class RefreshLease:
+    pass
+
+
+@dataclass
+class StartSharding:
     pass
 
 
