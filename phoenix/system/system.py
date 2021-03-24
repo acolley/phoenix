@@ -37,7 +37,12 @@ from phoenix.cluster.protocol import (
 from phoenix.connection import Connection
 from phoenix.dataclasses import dataclass
 from phoenix.retry import retry
-from phoenix.supervision.supervisor import ChildSpec, RestartStrategy, RestartWhen, Supervisor
+from phoenix.supervision.supervisor import (
+    ChildSpec,
+    RestartStrategy,
+    RestartWhen,
+    Supervisor,
+)
 from phoenix.system import cluster_connection
 from phoenix.system.protocol import ActorExists, ClusterDisconnected, NoSuchActor
 
