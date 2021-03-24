@@ -23,6 +23,7 @@ class Echo:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip
 async def test_node(event_loop, unused_tcp_port: int):
     cluster = ActorSystem("cluster")
     await cluster.start()
@@ -88,6 +89,7 @@ class Message:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip
 async def test_call(unused_tcp_port: int):
     cluster = ActorSystem("cluster")
     await cluster.start()
