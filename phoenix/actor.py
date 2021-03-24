@@ -36,6 +36,10 @@ class Behaviour(Enum):
 
 class Context(ABC):
     @abstractmethod
+    def actor_id_for(self, name: str) -> ActorId:
+        raise NotImplementedError
+
+    @abstractmethod
     async def cast(self, actor_id: ActorId, msg: Any):
         raise NotImplementedError
 

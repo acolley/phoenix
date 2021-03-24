@@ -582,6 +582,9 @@ class ActorSystem(Context):
         if isinstance(reply, Exception):
             raise reply
 
+    def actor_id_for(self, name: str) -> ActorId:
+        return ActorId(system_id=self.name, value=name)
+
     async def list_actors(self) -> Set[ActorId]:
         return set(self.actors.keys())
 
@@ -692,6 +695,9 @@ class ActorContext(Context):
 
     actor_id: ActorId
     system: ActorSystem
+
+    def actor_id_for(self, name: str) -> ActorId:
+        return self.system.actor_id_for(name)
 
     async def cast(self, actor_id, msg):
         await self.system.cast(actor_id, msg)
