@@ -4,8 +4,12 @@ from typing import Tuple
 
 from phoenix.actor import Actor, ActorId, Behaviour, Context
 from phoenix.dataclasses import dataclass
-from phoenix.dynamic_supervisor import ChildSpec, DynamicSupervisor, RestartWhen
 from phoenix.retry import retry
+from phoenix.supervision.dynamic_supervisor import (
+    ChildSpec,
+    DynamicSupervisor,
+    RestartWhen,
+)
 from phoenix.system.system import ActorDown, ActorSystem
 
 

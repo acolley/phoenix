@@ -2,7 +2,7 @@ import pytest
 from typing import Tuple
 
 from phoenix.actor import Actor, ActorId, Behaviour, Context
-from phoenix.supervisor import (
+from phoenix.supervision.supervisor import (
     ChildInfo,
     ChildSpec,
     RestartStrategy,
