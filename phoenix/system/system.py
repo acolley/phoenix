@@ -330,10 +330,6 @@ class ActorSystem(Context):
 
         watched = self.actors[msg.watched]
 
-        if watched.temporary:
-            await msg.reply_to.put(TemporaryActor(msg.watched))
-            return
-
         # Notify immediately if watched actor is Down
         if isinstance(watched, ActorDown):
             await self.cast(
@@ -341,6 +337,10 @@ class ActorSystem(Context):
                 Down(actor_id=watched.actor_id, reason=watched.reason),
             )
             await msg.reply_to.put(None)
+            return
+
+        if watched.temporary:
+            await msg.reply_to.put(TemporaryActor(msg.watched))
             return
 
         self.watchers[msg.watched].add(msg.watcher)
