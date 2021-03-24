@@ -183,6 +183,9 @@ async def handle(state: Following, msg: RefreshLease) -> Tuple[Behaviour, Follow
 async def handle(
     state: Union[Leading, Following], msg: aetcd3.events.PutEvent
 ) -> Tuple[Behaviour, Union[Leading, Following]]:
+    # FIXME: events are not linear
+    # https://etcd.io/docs/current/learning/api_guarantees/
+    # "Users are expected to verify the revision of watch responses to ensure correct ordering."
     key = msg.key.decode("utf-8")
     value = msg.value.decode("utf-8")
     if key.startswith("/members/"):
