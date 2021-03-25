@@ -1,25 +1,35 @@
 # Description
 
-Phoenix is an experimental [actor](https://en.wikipedia.org/wiki/Actor_model) framework for Python.
+Phoenix is an [actor](https://en.wikipedia.org/wiki/Actor_model) framework for Python.
 
-It is heavily-inspired by [Akka](https://akka.io/).
+It is heavily-inspired by [Akka](https://akka.io/) and [Elixir](https://elixir-lang.org/).
 
-# Features
+# Example
 
-* Create robust, fault-tolerant concurrent systems.
-* Actor model of concurrency.
-* (TODO) Prevent cycles in actor hierarchy.
-* Actors are multiplexed onto coroutines.
-* (TODO) Actors are multiplexed onto processes.
-* Actor is a state machine that returns its next state behaviour.
-* (TODO) Dead-letter handling.
-* (TODO) Event-sourced persistence.
-* (TODO) Dependency injection.
-* (TODO) Rate-limiting
-* Observability
-    * (TODO) Metrics
-        * (TODO) Inbox sizes
-        * (TODO) Memory usage
-        * (TODO) Latency
-        * (TODO) Message rates
-    * Logging
+```python
+import asyncio
+from phoenix.actor import Actor, Behaviour, Context
+from phoenix.system.system import ActorSystem
+from typing import Tuple
+
+
+async def actor_start(context: Context) -> Actor:
+    return Actor(state=context, handler=actor_handle)
+
+
+async def actor_handle(state: Context, msg: str) -> Tuple[Behaviour, Context]:
+    print(msg)
+    return Behaviour.done, state
+
+
+async def main():
+    system = ActorSystem("system")
+    await system.start()
+    actor_id = await system.spawn(actor_start)
+    await system.cast("Hello there")
+    await asyncio.sleep(2)
+    await system.shutdown()
+
+
+asyncio.run(main())
+```
