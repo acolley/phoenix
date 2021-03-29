@@ -26,7 +26,7 @@ async def main():
     system = ActorSystem("system")
     await system.start()
     actor_id = await system.spawn(actor_start)
-    await system.cast("Hello there")
+    await system.cast(actor_id, "Hello there")
     await asyncio.sleep(2)
     await system.shutdown()
 
